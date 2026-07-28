@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { deleteSession } from "@/lib/session";
+import { SESSION_COOKIE } from "@/lib/session";
 
 export async function POST(request: Request) {
-  await deleteSession();
-  return NextResponse.redirect(new URL("/login", request.url), 303);
+  const response = NextResponse.redirect(new URL("/login", request.url), 303);
+  response.cookies.delete(SESSION_COOKIE);
+  return response;
 }

@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { createSession } from "@/lib/session";
+import {
+  SESSION_COOKIE,
+  createSessionToken,
+  sessionCookieOptions,
+} from "@/lib/session";
 import { findUserByEmail, toSessionUser } from "@/lib/users";
 
 const LoginFormSchema = z.object({
@@ -35,8 +39,9 @@ export async function POST(request: Request) {
     return loginRedirect(request, "invalid");
   }
 
+  let sessionToken;
   try {
-    await createSession(toSessionUser(user));
+    sessionToken = await createSessionToken(toSessionUser(user));
   } catch (error) {
     if (
       error instanceof Error &&
@@ -47,5 +52,14 @@ export async function POST(request: Request) {
     throw error;
   }
 
-  return NextResponse.redirect(new URL("/dashboard", request.url), 303);
+  const response = NextResponse.redirect(
+    new URL("/dashboard", request.url),
+    303,
+  );
+  response.cookies.set(
+    SESSION_COOKIE,
+    sessionToken.value,
+    sessionCookieOptions(sessionToken.expiresAt),
+  );
+  return response;
 }

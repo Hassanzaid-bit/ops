@@ -10,22 +10,31 @@ import {
 
 export { SESSION_COOKIE, decrypt } from "@/lib/session-token";
 
-export async function createSession(user: SessionUser) {
+export function sessionCookieOptions(expiresAt: Date) {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    expires: expiresAt,
+    sameSite: "lax" as const,
+    path: "/",
+  };
+}
+
+export async function createSessionToken(user: SessionUser) {
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-  const session = await encrypt({
+  const value = await encrypt({
     email: user.email,
     name: user.name,
     role: user.role,
     expiresAt: expiresAt.toISOString(),
   });
+  return { value, expiresAt };
+}
+
+export async function createSession(user: SessionUser) {
+  const { value, expiresAt } = await createSessionToken(user);
   const cookieStore = await cookies();
-  cookieStore.set(SESSION_COOKIE, session, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    expires: expiresAt,
-    sameSite: "lax",
-    path: "/",
-  });
+  cookieStore.set(SESSION_COOKIE, value, sessionCookieOptions(expiresAt));
 }
 
 export async function deleteSession() {
