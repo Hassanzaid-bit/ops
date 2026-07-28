@@ -1,15 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
+import { useEffect, useState, useTransition } from "react";
+import { logout } from "@/app/actions/auth";
 import {
   ROLE_LABELS,
-  clearSession,
-  getSession,
   initials,
   type SessionUser,
-} from "@/lib/session";
+} from "@/lib/auth-types";
 
 const SIDEBAR_KEY = "qzone-sidebar-collapsed";
 
@@ -50,17 +49,22 @@ function isReportsPath(pathname: string) {
   );
 }
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({
+  children,
+  user,
+}: {
+  children: React.ReactNode;
+  user: SessionUser;
+}) {
   const pathname = usePathname();
-  const router = useRouter();
   const reportsActive = isReportsPath(pathname);
   const [reportsOpen, setReportsOpen] = useState(reportsActive);
   const [mobileReportsOpen, setMobileReportsOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [collapsedReportsOpen, setCollapsedReportsOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
-  const [user, setUser] = useState<SessionUser | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [loggingOut, startLogout] = useTransition();
 
   useEffect(() => {
     try {
@@ -68,13 +72,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     } catch {
       /* ignore */
     }
-    const session = getSession();
-    setUser(session);
     setHydrated(true);
-    if (!session) {
-      router.replace("/login");
-    }
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -100,19 +99,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setCollapsedReportsOpen(false);
   }
 
-  function logout() {
-    clearSession();
-    setUser(null);
+  function handleLogout() {
     setProfileOpen(false);
-    router.replace("/login");
-  }
-
-  if (!hydrated || !user) {
-    return (
-      <div className="flex min-h-dvh items-center justify-center bg-[var(--bg)] text-[var(--ink-muted)]">
-        Loading…
-      </div>
-    );
+    startLogout(() => {
+      void logout();
+    });
   }
 
   return (
@@ -335,10 +326,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <button
                     type="button"
                     role="menuitem"
-                    onClick={logout}
-                    className="flex w-full px-3 py-3 text-left text-sm font-semibold text-[var(--ink)] transition-colors hover:bg-[var(--bg)]"
+                    onClick={handleLogout}
+                    disabled={loggingOut}
+                    className="flex w-full px-3 py-3 text-left text-sm font-semibold text-[var(--ink)] transition-colors hover:bg-[var(--bg)] disabled:opacity-60"
                   >
-                    Log out
+                    {loggingOut ? "Logging out…" : "Log out"}
                   </button>
                 </div>
               </>

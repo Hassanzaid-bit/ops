@@ -1,39 +1,13 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import {
-  DEMO_USERS,
-  ROLE_LABELS,
-  getSession,
-  setSession,
-  type SessionUser,
-} from "@/lib/session";
+import { useActionState } from "react";
+import { login, type LoginState } from "@/app/actions/auth";
 
 export default function LoginPage() {
-  const router = useRouter();
-  const [checking, setChecking] = useState(true);
-
-  useEffect(() => {
-    if (getSession()) {
-      router.replace("/dashboard");
-      return;
-    }
-    setChecking(false);
-  }, [router]);
-
-  function signIn(user: SessionUser) {
-    setSession(user);
-    router.replace("/dashboard");
-  }
-
-  if (checking) {
-    return (
-      <div className="flex min-h-dvh items-center justify-center bg-[var(--bg)] text-[var(--ink-muted)]">
-        Loading…
-      </div>
-    );
-  }
+  const [state, action, pending] = useActionState<LoginState, FormData>(
+    login,
+    undefined,
+  );
 
   return (
     <div className="flex min-h-dvh items-center justify-center bg-[var(--bg)] px-4 py-10">
@@ -46,38 +20,68 @@ export default function LoginPage() {
             Field Ops
           </h1>
           <p className="text-sm text-[var(--ink-muted)]">
-            Sign in to continue. Demo accounts for the prototype — no password
-            yet.
+            Sign in with your email and password to continue.
           </p>
         </header>
 
-        <div className="space-y-2 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-3 shadow-[var(--shadow)]">
-          {DEMO_USERS.map((user) => (
-            <button
-              key={user.email}
-              type="button"
-              onClick={() => signIn(user)}
-              className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors hover:bg-[var(--bg)]"
+        <form
+          action={action}
+          className="space-y-4 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 shadow-[var(--shadow)]"
+        >
+          <div className="space-y-1.5">
+            <label
+              htmlFor="email"
+              className="block text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]"
             >
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-sm font-semibold text-[var(--accent-ink)]">
-                {user.name
-                  .split(/\s+/)
-                  .map((p) => p[0])
-                  .slice(0, 2)
-                  .join("")
-                  .toUpperCase()}
-              </span>
-              <span className="min-w-0">
-                <span className="block text-sm font-semibold text-[var(--ink)]">
-                  {user.name}
-                </span>
-                <span className="block text-xs text-[var(--ink-muted)]">
-                  {ROLE_LABELS[user.role]} · {user.email}
-                </span>
-              </span>
-            </button>
-          ))}
-        </div>
+              Email
+            </label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              required
+              className="w-full rounded-xl border border-[var(--line)] bg-[var(--bg)] px-3 py-2.5 text-sm text-[var(--ink)] outline-none transition-colors focus:border-[var(--accent)]"
+            />
+            {state?.errors?.email && (
+              <p className="text-xs text-red-700">{state.errors.email[0]}</p>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
+            <label
+              htmlFor="password"
+              className="block text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]"
+            >
+              Password
+            </label>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              required
+              className="w-full rounded-xl border border-[var(--line)] bg-[var(--bg)] px-3 py-2.5 text-sm text-[var(--ink)] outline-none transition-colors focus:border-[var(--accent)]"
+            />
+            {state?.errors?.password && (
+              <p className="text-xs text-red-700">{state.errors.password[0]}</p>
+            )}
+          </div>
+
+          {state?.message && (
+            <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
+              {state.message}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={pending}
+            className="w-full rounded-xl bg-[var(--accent)] px-4 py-2.5 text-sm font-semibold text-[var(--accent-ink)] transition-opacity disabled:opacity-60"
+          >
+            {pending ? "Signing in…" : "Sign in"}
+          </button>
+        </form>
       </div>
     </div>
   );

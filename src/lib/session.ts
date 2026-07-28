@@ -1,63 +1,40 @@
-export type UserRole = "technician" | "manager" | "admin";
+import "server-only";
 
-export type SessionUser = {
-  name: string;
-  role: UserRole;
-  email: string;
-};
+import { cookies } from "next/headers";
+import type { SessionUser } from "@/lib/auth-types";
+import {
+  SESSION_COOKIE,
+  decrypt,
+  encrypt,
+} from "@/lib/session-token";
 
-const SESSION_KEY = "qzone-session-v1";
+export { SESSION_COOKIE, decrypt } from "@/lib/session-token";
 
-export const DEMO_USERS: SessionUser[] = [
-  {
-    name: "Boniface Kithinga",
-    role: "technician",
-    email: "boniface@qzone.co.ke",
-  },
-  {
-    name: "Amina Wanjiru",
-    role: "technician",
-    email: "amina@qzone.co.ke",
-  },
-  {
-    name: "Operations Manager",
-    role: "manager",
-    email: "ops@qzone.co.ke",
-  },
-];
-
-export const ROLE_LABELS: Record<UserRole, string> = {
-  technician: "Technician",
-  manager: "Manager",
-  admin: "Admin",
-};
-
-export function getSession(): SessionUser | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = localStorage.getItem(SESSION_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as SessionUser;
-    if (!parsed?.name || !parsed?.role) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
+export async function createSession(user: SessionUser) {
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const session = await encrypt({
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    expiresAt: expiresAt.toISOString(),
+  });
+  const cookieStore = await cookies();
+  cookieStore.set(SESSION_COOKIE, session, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    expires: expiresAt,
+    sameSite: "lax",
+    path: "/",
+  });
 }
 
-export function setSession(user: SessionUser) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(SESSION_KEY, JSON.stringify(user));
+export async function deleteSession() {
+  const cookieStore = await cookies();
+  cookieStore.delete(SESSION_COOKIE);
 }
 
-export function clearSession() {
-  if (typeof window === "undefined") return;
-  localStorage.removeItem(SESSION_KEY);
-}
-
-export function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+export async function getSession(): Promise<SessionUser | null> {
+  const cookieStore = await cookies();
+  const cookie = cookieStore.get(SESSION_COOKIE)?.value;
+  return decrypt(cookie);
 }
