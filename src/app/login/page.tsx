@@ -1,19 +1,16 @@
-"use client";
+const ERROR_MESSAGES: Record<string, string> = {
+  invalid: "Invalid email or password.",
+  config:
+    "Server auth is not configured. Set SESSION_SECRET in Vercel and redeploy.",
+};
 
-import { useActionState, useEffect } from "react";
-import { login, type LoginState } from "@/app/actions/auth";
+type Props = {
+  searchParams: Promise<{ error?: string }>;
+};
 
-export default function LoginPage() {
-  const [state, action, pending] = useActionState<LoginState, FormData>(
-    login,
-    undefined,
-  );
-
-  useEffect(() => {
-    if (state?.success) {
-      window.location.assign("/dashboard");
-    }
-  }, [state?.success]);
+export default async function LoginPage({ searchParams }: Props) {
+  const { error } = await searchParams;
+  const message = error ? ERROR_MESSAGES[error] : undefined;
 
   return (
     <div className="flex min-h-dvh items-center justify-center bg-[var(--bg)] px-4 py-10">
@@ -31,7 +28,8 @@ export default function LoginPage() {
         </header>
 
         <form
-          action={action}
+          action="/api/auth/login"
+          method="POST"
           className="space-y-4 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 shadow-[var(--shadow)]"
         >
           <div className="space-y-1.5">
@@ -49,9 +47,6 @@ export default function LoginPage() {
               required
               className="w-full rounded-xl border border-[var(--line)] bg-[var(--bg)] px-3 py-2.5 text-sm text-[var(--ink)] outline-none transition-colors focus:border-[var(--accent)]"
             />
-            {state?.errors?.email && (
-              <p className="text-xs text-red-700">{state.errors.email[0]}</p>
-            )}
           </div>
 
           <div className="space-y-1.5">
@@ -69,25 +64,27 @@ export default function LoginPage() {
               required
               className="w-full rounded-xl border border-[var(--line)] bg-[var(--bg)] px-3 py-2.5 text-sm text-[var(--ink)] outline-none transition-colors focus:border-[var(--accent)]"
             />
-            {state?.errors?.password && (
-              <p className="text-xs text-red-700">{state.errors.password[0]}</p>
-            )}
           </div>
 
-          {state?.message && (
+          {message && (
             <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
-              {state.message}
+              {message}
             </p>
           )}
 
           <button
             type="submit"
-            disabled={pending}
-            className="w-full rounded-xl bg-[var(--accent)] px-4 py-2.5 text-sm font-semibold text-[var(--accent-ink)] transition-opacity disabled:opacity-60"
+            className="w-full rounded-xl bg-[var(--accent)] px-4 py-2.5 text-sm font-semibold text-[var(--accent-ink)] transition-opacity"
           >
-            {pending ? "Signing in…" : "Sign in"}
+            Sign in
           </button>
         </form>
+
+        {error === "invalid" && (
+          <p className="text-center text-xs text-[var(--ink-muted)]">
+            After a deploy, hard-refresh this page if sign-in keeps failing.
+          </p>
+        )}
       </div>
     </div>
   );
