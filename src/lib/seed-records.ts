@@ -1,6 +1,11 @@
 import type { AreaInspection } from "./types";
 import type { VisitRecord } from "./visit-record";
-import { emptyAreaInspection } from "./types";
+import {
+  emptyAreaInspection,
+  emptyPointsForArea,
+  normalizeAreaInspection,
+  syncAreaDerivedFields,
+} from "./types";
 import { getTreatmentCatalogItem } from "./vocabulary";
 
 type AreaSeed = {
@@ -46,26 +51,180 @@ function insp(s: AreaSeed): AreaInspection {
       ? "issues"
       : "clean";
 
-  return {
-    ...emptyAreaInspection(s.area),
-    status,
-    findings: (s.conditions ?? []).filter((c) => c !== "None observed"),
-    pestTypes: (s.pests ?? []).filter((p) => p !== "None observed"),
-    treatment: {
-      applications: apps,
-      serviceActions: s.methods ?? [],
+  // Omit points so normalize migrates legacy fields into schema v2 points
+  return normalizeAreaInspection(
+    {
+      area: s.area,
+      status,
+      findings: (s.conditions ?? []).filter((c) => c !== "None observed"),
+      pestTypes: (s.pests ?? []).filter((p) => p !== "None observed"),
+      treatment: {
+        applications: apps,
+        serviceActions: s.methods ?? [],
+      },
+      deviceService: s.device
+        ? {
+            enabled: true,
+            count: s.device.count,
+            actions: s.device.actions,
+          }
+        : emptyAreaInspection().deviceService,
+      advice: s.rec ?? ["Continue routine monitoring"],
+      notes: s.notes,
+      photoCount: 0,
     },
-    deviceService: s.device
-      ? {
-          enabled: true,
-          count: s.device.count,
-          actions: s.device.actions,
+    s.area,
+  );
+}
+
+/** Inject MD-pack demo signal: severity, conducive, escalation, species */
+function enrichMdPackSeed(areas: AreaInspection[]): AreaInspection[] {
+  return areas.map((raw) => {
+    const a = normalizeAreaInspection(raw, raw.area);
+    const points = emptyPointsForArea(a.area).map((template) => {
+      const existing =
+        a.points.find((p) => p.pointId === template.pointId) ?? template;
+      return { ...template, ...existing, pointId: template.pointId, label: template.label };
+    });
+
+    if (a.area === "Fly Control Units (FCUs)") {
+      const idx = points.findIndex((p) => p.pointId === "units");
+      const i = idx >= 0 ? idx : 0;
+      points[i] = {
+        ...points[i],
+        outcome: "issue",
+        identification: { pestType: "fly", evidence: "glue_board" },
+        thresholdLevel: "moderate",
+        conduciveCondition: { present: true, type: "food_debris" },
+        actionTier: "targeted_treatment",
+        note: "Moderate fly catch on FCU boards; food debris near waste route.",
+      };
+      if (points[1]) {
+        points[1] = {
+          ...points[1],
+          outcome: "issue",
+          identification: { pestType: "fly", evidence: "glue_board" },
+          thresholdLevel: "light",
+          conduciveCondition: { present: false, type: null },
+          actionTier: "monitor",
+          note: "Boards replaced; continue monitoring.",
+        };
+      }
+      if (points[2]) {
+        points[2] = {
+          ...points[2],
+          outcome: "issue",
+          identification: { pestType: null, evidence: null },
+          thresholdLevel: "light",
+          conduciveCondition: { present: true, type: "dirty" },
+          actionTier: "exclusion_sanitation",
+          note: "Surrounding hygiene supporting fly pressure — client action.",
+        };
+      }
+      return syncAreaDerivedFields({
+        ...a,
+        points,
+        recommendation: "Follow-up visit required",
+        treatmentApplied: "corrective",
+      });
+    }
+
+    if (a.area === "Grease Trap") {
+      const idx = points.findIndex((p) => p.pointId === "surrounds");
+      const i = idx >= 0 ? idx : 0;
+      points[i] = {
+        ...points[i],
+        outcome: "issue",
+        identification: { pestType: "cockroach_german", evidence: "live_activity" },
+        thresholdLevel: "heavy",
+        conduciveCondition: { present: true, type: "food_debris" },
+        actionTier: "escalation",
+        note: "Heavy German cockroach activity at grease-trap surrounds.",
+      };
+      for (let j = 0; j < points.length; j++) {
+        if (j === i) continue;
+        if (points[j].outcome === null) {
+          points[j] = {
+            ...points[j],
+            outcome: "clean",
+            thresholdLevel: "none",
+            actionTier: "monitor",
+          };
         }
-      : emptyAreaInspection().deviceService,
-    advice: s.rec ?? ["Continue routine monitoring"],
-    notes: s.notes,
-    photoCount: 0,
-  };
+      }
+      return syncAreaDerivedFields({
+        ...a,
+        points,
+        recommendation: "Follow-up visit required",
+        treatmentApplied: "corrective",
+      });
+    }
+
+    if (a.area === "Trunking & Industrial Sockets") {
+      const idx = points.findIndex((p) => p.pointId === "sockets");
+      const i = idx >= 0 ? idx : 0;
+      points[i] = {
+        ...points[i],
+        outcome: "issue",
+        identification: { pestType: null, evidence: null },
+        thresholdLevel: "moderate",
+        conduciveCondition: { present: true, type: "not_sealed" },
+        actionTier: "exclusion_sanitation",
+        note: "One industrial socket found open — exclusion fix required.",
+      };
+      for (let j = 0; j < points.length; j++) {
+        if (j === i) continue;
+        if (points[j].outcome === null) {
+          points[j] = {
+            ...points[j],
+            outcome: "clean",
+            thresholdLevel: "none",
+            actionTier: "monitor",
+          };
+        }
+      }
+      return syncAreaDerivedFields({
+        ...a,
+        points,
+        recommendation: "Client action needed",
+        treatmentApplied: a.treatmentApplied,
+      });
+    }
+
+    if (a.area === "Dry Goods Store") {
+      const idx = points.findIndex((p) => p.pointId === "floor");
+      const i = idx >= 0 ? idx : 0;
+      points[i] = {
+        ...points[i],
+        outcome: "issue",
+        identification: { pestType: "rodent", evidence: "droppings" },
+        thresholdLevel: "light",
+        conduciveCondition: { present: true, type: "clutter" },
+        actionTier: "targeted_treatment",
+        note: "Light rodent signs at perimeter; stock clutter noted.",
+      };
+      for (let j = 0; j < points.length; j++) {
+        if (j === i) continue;
+        if (points[j].outcome === null) {
+          points[j] = {
+            ...points[j],
+            outcome: "clean",
+            thresholdLevel: "none",
+            actionTier: "monitor",
+          };
+        }
+      }
+      return syncAreaDerivedFields({
+        ...a,
+        points,
+        recommendation:
+          "Monitor closely following treatment to confirm resolution",
+        treatmentApplied: "corrective",
+      });
+    }
+
+    return a;
+  });
 }
 
 /** Full IPM report text from live client sample */
@@ -424,7 +583,7 @@ export const SEED_RECORDS: VisitRecord[] = [
     technicianName: "Boniface Kithinga",
     date: GOLDEN_DATE,
     submittedAt: `${GOLDEN_DATE}T16:40:00.000Z`,
-    areas: FULL_INSPECTION_AREAS.map(insp),
+    areas: enrichMdPackSeed(FULL_INSPECTION_AREAS.map(insp)),
     reportText: REPORT_HEADER + SAMPLE_IPM_REPORT.replace(
       "INTEGRATED PEST MANAGEMENT (IPM) SERVICE REPORT\n\n",
       "",
@@ -440,7 +599,7 @@ export const SEED_RECORDS: VisitRecord[] = [
     technicianName: "Boniface Kithinga",
     date: daysAgo(7),
     submittedAt: `${daysAgo(7)}T15:10:00.000Z`,
-    areas: FULL_INSPECTION_AREAS.map(insp),
+    areas: enrichMdPackSeed(FULL_INSPECTION_AREAS.map(insp)),
     reportText: SAMPLE_IPM_REPORT,
   },
   {
@@ -453,7 +612,7 @@ export const SEED_RECORDS: VisitRecord[] = [
     technicianName: "Boniface Kithinga",
     date: daysAgo(3),
     submittedAt: `${daysAgo(3)}T11:20:00.000Z`,
-    areas: [
+    areas: enrichMdPackSeed([
       insp({
         area: "Fly Control Units (FCUs)",
         rating: "good",
@@ -492,7 +651,7 @@ export const SEED_RECORDS: VisitRecord[] = [
         notes:
           "All accessible manholes and drainage points were inspected and found clean and well maintained.\nPreventive treatment was carried out throughout the drainage system.\nNo conditions requiring corrective action were identified.\nDrain covers were intact and secure.\nRegular cleaning and maintenance of drainage systems are recommended to ensure proper flow and maintain high hygiene standards.",
       }),
-    ],
+    ]),
     reportText: `INTEGRATED PEST MANAGEMENT (IPM) SERVICE REPORT
 
 Client: KFC
@@ -526,7 +685,7 @@ MANHOLES & DRAINAGE SYSTEMS
     technicianName: "Amina Wanjiru",
     date: daysAgo(5),
     submittedAt: `${daysAgo(5)}T14:00:00.000Z`,
-    areas: FULL_INSPECTION_AREAS.map(insp),
+    areas: enrichMdPackSeed(FULL_INSPECTION_AREAS.map(insp)),
     reportText: SAMPLE_IPM_REPORT.replace(
       "INTEGRATED PEST MANAGEMENT (IPM) SERVICE REPORT",
       "INTEGRATED PEST MANAGEMENT (IPM) SERVICE REPORT\n\nClient: KFC\nSite: Westside Mall",

@@ -2,42 +2,26 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Chip, ChipGroup } from "@/components/Chip";
 import { AreaPickerModal } from "@/components/AreaPickerModal";
+import { AreaCaptureScreen } from "@/components/AreaCaptureScreen";
 import { getAvailableAreas, getSite } from "@/lib/ops-store";
-import {
-  generateInsectramBlock,
-  generateReport,
-  whatsappShareUrl,
-} from "@/lib/report";
+import { generateReport } from "@/lib/report";
 import { upsertRecord } from "@/lib/records-store";
 import { clearDraft, loadDraft, saveDraft } from "@/lib/storage";
 import {
   allAreasComplete,
   emptyAreaInspection,
-  emptyTreatmentRow,
   isAreaComplete,
   isDeviceArea,
   normalizeAreaInspection,
   normalizeTreatment,
+  syncAreaDerivedFields,
   type AreaInspection,
   type ScheduledVisit,
   type VisitDraft,
 } from "@/lib/types";
 import { buildVisitRecord } from "@/lib/visit-record";
-import {
-  ADVICE_OPTIONS,
-  DEVICE_ACTIONS,
-  DEVICE_COUNTS,
-  FINDINGS,
-  PEST_TYPE_GROUPS,
-  PEST_TYPES,
-  TREATMENT_APPLICATION_METHODS,
-  TREATMENT_PRODUCT_NAMES,
-  TREATMENT_QUANTITIES,
-  VISIT_TYPE_LABELS,
-  getTreatmentCatalogItem,
-} from "@/lib/vocabulary";
+import { VISIT_TYPE_LABELS } from "@/lib/vocabulary";
 
 type Props = { visit: ScheduledVisit };
 type Screen = "list" | "area" | "review";
@@ -110,7 +94,7 @@ export function CaptureFlow({ visit }: Props) {
     const areas = draft.areas.map((a) => {
       if (a.area !== areaName) return a;
       const base = normalizeAreaInspection(a, a.area);
-      return { ...base, ...patch, area: areaName };
+      return syncAreaDerivedFields({ ...base, ...patch, area: areaName });
     });
     persist({ ...draft, areas });
   }
@@ -135,26 +119,12 @@ export function CaptureFlow({ visit }: Props) {
     const next = { ...draft, submittedAt };
     persist(next);
     upsertRecord(buildVisitRecord(visit, site, draft.areas, submittedAt));
-    setCopyFlash("Saved to records");
+    setCopyFlash("Report saved");
     setTimeout(() => setCopyFlash(null), 2500);
-  }
-
-  async function copyText(label: string, text: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopyFlash(`${label} copied`);
-    } catch {
-      setCopyFlash("Copy failed");
-    }
-    setTimeout(() => setCopyFlash(null), 2000);
   }
 
   const report = useMemo(
     () => generateReport(visit, site, draft.areas),
-    [visit, site, draft.areas],
-  );
-  const insectram = useMemo(
-    () => generateInsectramBlock(visit, site, draft.areas),
     [visit, site, draft.areas],
   );
 
@@ -324,43 +294,13 @@ export function CaptureFlow({ visit }: Props) {
           <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-sm leading-relaxed text-[var(--ink)]">
             {report}
           </pre>
-          <div className="grid gap-2">
-            <button
-              type="button"
-              onClick={() => copyText("Report", report)}
-              className="inline-flex min-h-11 items-center justify-center rounded-lg bg-[var(--ink)] px-4 text-sm font-semibold text-[var(--bg)]"
-            >
-              Copy report
-            </button>
-            <a
-              href={whatsappShareUrl(report)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex min-h-11 items-center justify-center rounded-lg border border-[var(--line)] bg-[var(--surface)] px-4 text-sm font-semibold text-[var(--ink)]"
-            >
-              Share to WhatsApp
-            </a>
-            <button
-              type="button"
-              onClick={() => copyText("Insectram block", insectram)}
-              className="inline-flex min-h-11 items-center justify-center rounded-lg border border-[var(--line)] bg-[var(--surface)] px-4 text-sm font-semibold text-[var(--ink)]"
-            >
-              Copy for Insectram
-            </button>
-            <button
-              type="button"
-              onClick={submitLocal}
-              className="inline-flex min-h-11 items-center justify-center rounded-lg bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--accent-ink)]"
-            >
-              {draft.submittedAt ? "Resubmit to records" : "Submit to records"}
-            </button>
-            <Link
-              href="/reports"
-              className="inline-flex min-h-11 items-center justify-center rounded-lg border border-[var(--line)] bg-[var(--surface)] px-4 text-sm font-semibold text-[var(--ink)]"
-            >
-              Open management reports
-            </Link>
-          </div>
+          <button
+            type="button"
+            onClick={submitLocal}
+            className="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--accent-ink)]"
+          >
+            {draft.submittedAt ? "Save report again" : "Save report"}
+          </button>
           <button
             type="button"
             className="text-sm text-[var(--ink-muted)] underline"
@@ -409,436 +349,5 @@ export function CaptureFlow({ visit }: Props) {
         </div>
       )}
     </div>
-  );
-}
-
-function AreaCaptureScreen({
-  insp,
-  showDevices,
-  treatmentOn,
-  onTreatmentOnChange,
-  onChange,
-  onBack,
-}: {
-  insp: AreaInspection;
-  showDevices: boolean;
-  treatmentOn: boolean;
-  onTreatmentOnChange: (on: boolean) => void;
-  onChange: (patch: Partial<AreaInspection>) => void;
-  onBack: () => void;
-}) {
-  const treatment = normalizeTreatment(insp.treatment);
-  const rows =
-    treatment.applications.length > 0
-      ? treatment.applications
-      : treatmentOn
-        ? [emptyTreatmentRow()]
-        : [];
-
-  function setRows(next: typeof rows) {
-    onChange({
-      treatment: {
-        ...treatment,
-        applications: next.some((r) => r.product) ? next : [],
-      },
-    });
-  }
-
-  const complete = isAreaComplete(insp);
-
-  return (
-    <main className="space-y-3 pb-8">
-      <div className="space-y-1">
-        <button
-          type="button"
-          onClick={onBack}
-          className="text-sm font-medium text-[var(--accent-deep)]"
-        >
-          ← All areas
-        </button>
-        <h2 className="text-xl font-semibold text-[var(--ink)]">{insp.area}</h2>
-      </div>
-
-      <section className="space-y-2">
-        <p className="text-sm font-medium text-[var(--ink-muted)]">Status</p>
-        <div className="grid grid-cols-2 gap-2">
-          <Chip
-            label="Clean"
-            selected={insp.status === "clean"}
-            onClick={() =>
-              onChange({
-                status: "clean",
-                findings: [],
-                pestTypes: [],
-              })
-            }
-          />
-          <Chip
-            label="Issues noted"
-            selected={insp.status === "issues"}
-            onClick={() => onChange({ status: "issues" })}
-          />
-        </div>
-      </section>
-
-      {insp.status && (
-        <>
-          {insp.status === "issues" && (
-            <>
-              <section className="space-y-2">
-                <p className="text-sm font-medium text-[var(--ink-muted)]">
-                  Findings
-                </p>
-                <ChipGroup
-                  options={FINDINGS}
-                  selected={insp.findings}
-                  onChange={(findings) => onChange({ findings })}
-                  searchable
-                  placeholder="Search findings…"
-                />
-              </section>
-              <section className="space-y-2">
-                <p className="text-sm font-medium text-[var(--ink-muted)]">
-                  Pest type (optional)
-                </p>
-                <ChipGroup
-                  options={PEST_TYPES}
-                  selected={insp.pestTypes}
-                  onChange={(pestTypes) => onChange({ pestTypes })}
-                  searchable
-                  groups={PEST_TYPE_GROUPS}
-                  placeholder="Search pest…"
-                />
-              </section>
-            </>
-          )}
-
-          <section className="space-y-3">
-            <p className="text-sm font-medium text-[var(--ink-muted)]">
-              Treatment
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              <Chip
-                label="None"
-                selected={!treatmentOn}
-                onClick={() => {
-                  onTreatmentOnChange(false);
-                  onChange({
-                    treatment: { applications: [], serviceActions: [] },
-                  });
-                }}
-              />
-              <Chip
-                label="Applied"
-                selected={treatmentOn}
-                onClick={() => {
-                  onTreatmentOnChange(true);
-                  if (treatment.applications.length === 0) {
-                    onChange({
-                      treatment: {
-                        applications: [emptyTreatmentRow()],
-                        serviceActions: [],
-                      },
-                    });
-                  }
-                }}
-              />
-            </div>
-
-            {treatmentOn && (
-              <div className="space-y-3">
-                {rows.map((app, index) => (
-                  <div
-                    key={`tx-${index}`}
-                    className="space-y-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-3"
-                  >
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                      <div className="min-w-0 space-y-1">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-                          Product
-                        </p>
-                        <ChipGroup
-                          options={TREATMENT_PRODUCT_NAMES}
-                          selected={app.product ? [app.product] : []}
-                          onChange={(next) => {
-                            const product = next[0] ?? "";
-                            const cat = product
-                              ? getTreatmentCatalogItem(product)
-                              : undefined;
-                            const updated = rows.map((row, i) =>
-                              i === index
-                                ? {
-                                    product,
-                                    method: "",
-                                    quantity: "",
-                                    activeIngredient:
-                                      cat?.activeIngredient ?? "",
-                                    antidote: cat?.antidote ?? "",
-                                  }
-                                : row,
-                            );
-                            setRows(updated);
-                          }}
-                          multi={false}
-                          searchable
-                          placeholder="Product…"
-                        />
-                      </div>
-                      <div className="min-w-0 space-y-1">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-                          Method
-                        </p>
-                        <ChipGroup
-                          options={TREATMENT_APPLICATION_METHODS}
-                          selected={app.method ? [app.method] : []}
-                          onChange={(next) => {
-                            const method = next[0] ?? "";
-                            setRows(
-                              rows.map((row, i) =>
-                                i === index ? { ...row, method } : row,
-                              ),
-                            );
-                          }}
-                          multi={false}
-                          searchable
-                          placeholder="Method…"
-                        />
-                      </div>
-                      <div className="min-w-0 space-y-1">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-                          Qty
-                        </p>
-                        <ChipGroup
-                          options={TREATMENT_QUANTITIES}
-                          selected={app.quantity ? [app.quantity] : []}
-                          onChange={(next) => {
-                            const quantity = next[0] ?? "";
-                            setRows(
-                              rows.map((row, i) =>
-                                i === index ? { ...row, quantity } : row,
-                              ),
-                            );
-                          }}
-                          multi={false}
-                          searchable
-                          placeholder="Qty…"
-                        />
-                      </div>
-                    </div>
-                    {rows.length > 1 && (
-                      <button
-                        type="button"
-                        className="text-xs font-semibold text-[var(--ink-muted)]"
-                        onClick={() =>
-                          setRows(rows.filter((_, i) => i !== index))
-                        }
-                      >
-                        Remove product
-                      </button>
-                    )}
-                  </div>
-                ))}
-                {rows.every((r) => r.product && r.method && r.quantity) && (
-                  <button
-                    type="button"
-                    className="text-sm font-semibold text-[var(--accent-deep)]"
-                    onClick={() => setRows([...rows, emptyTreatmentRow()])}
-                  >
-                    + Add another product
-                  </button>
-                )}
-              </div>
-            )}
-          </section>
-
-          {showDevices && (
-            <section className="space-y-3 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-3">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-medium text-[var(--ink)]">
-                  Device service
-                </p>
-                <button
-                  type="button"
-                  onClick={() =>
-                    onChange({
-                      deviceService: {
-                        ...insp.deviceService,
-                        enabled: !insp.deviceService.enabled,
-                        count: insp.deviceService.enabled
-                          ? ""
-                          : insp.deviceService.count,
-                        actions: insp.deviceService.enabled
-                          ? []
-                          : insp.deviceService.actions,
-                      },
-                    })
-                  }
-                  className={[
-                    "min-h-10 rounded-lg px-3 text-sm font-semibold",
-                    insp.deviceService.enabled
-                      ? "bg-[var(--accent)] text-[var(--accent-ink)]"
-                      : "border border-[var(--line)] text-[var(--ink-muted)]",
-                  ].join(" ")}
-                >
-                  {insp.deviceService.enabled ? "On" : "Off"}
-                </button>
-              </div>
-              {insp.deviceService.enabled && (
-                <>
-                  <div className="space-y-1">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-                      Count
-                    </p>
-                    <ChipGroup
-                      options={DEVICE_COUNTS}
-                      selected={
-                        insp.deviceService.count
-                          ? [insp.deviceService.count]
-                          : []
-                      }
-                      onChange={(next) =>
-                        onChange({
-                          deviceService: {
-                            ...insp.deviceService,
-                            count: next[0] ?? "",
-                          },
-                        })
-                      }
-                      multi={false}
-                      searchable
-                      placeholder="Count…"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-                      Actions
-                    </p>
-                    <ChipGroup
-                      options={DEVICE_ACTIONS}
-                      selected={insp.deviceService.actions}
-                      onChange={(actions) =>
-                        onChange({
-                          deviceService: {
-                            ...insp.deviceService,
-                            actions,
-                          },
-                        })
-                      }
-                    />
-                  </div>
-                </>
-              )}
-            </section>
-          )}
-
-          <section className="space-y-2">
-            <div>
-              <p className="text-sm font-medium text-[var(--ink-muted)]">
-                Advice / next step
-              </p>
-              <p className="text-xs text-[var(--ink-muted)]">
-                Optional — what should happen next.
-              </p>
-            </div>
-            <div className="overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)]">
-              <table className="w-full text-left text-sm">
-                <thead>
-                  <tr className="border-b border-[var(--line)] bg-[var(--bg)]">
-                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-                      Advice
-                    </th>
-                    <th className="w-24 px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-                      Select
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ADVICE_OPTIONS.map((option) => {
-                    const on = insp.advice.includes(option);
-                    return (
-                      <tr
-                        key={option}
-                        className="border-b border-[var(--line)] last:border-0"
-                      >
-                        <td className="px-3 py-2.5 text-[var(--ink)]">
-                          {option}
-                        </td>
-                        <td className="px-3 py-2.5 text-right">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onChange({
-                                advice: on
-                                  ? insp.advice.filter((a) => a !== option)
-                                  : [...insp.advice, option],
-                              })
-                            }
-                            className={[
-                              "min-h-9 min-w-16 rounded-md border px-2 text-xs font-semibold",
-                              on
-                                ? "border-[var(--accent)] text-[var(--accent)] ring-1 ring-[var(--accent)]"
-                                : "border-[var(--line)] text-[var(--ink-muted)]",
-                            ].join(" ")}
-                          >
-                            {on ? "Yes ✓" : "No"}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          <section className="space-y-2">
-            <p className="text-sm font-medium text-[var(--ink-muted)]">
-              Photos (optional)
-            </p>
-            <label className="flex min-h-14 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-[var(--line)] bg-[var(--surface)] px-3 py-3 text-center">
-              <span className="text-sm font-semibold text-[var(--ink)]">
-                {insp.photoCount === 0
-                  ? "Add photos"
-                  : `${insp.photoCount} attached`}
-              </span>
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                multiple
-                className="sr-only"
-                onChange={(e) => {
-                  const n = e.target.files?.length ?? 0;
-                  if (n > 0) onChange({ photoCount: insp.photoCount + n });
-                  e.target.value = "";
-                }}
-              />
-            </label>
-          </section>
-
-          <button
-            type="button"
-            onClick={onBack}
-            className={[
-              "flex min-h-11 w-full items-center justify-center rounded-lg text-sm font-semibold",
-              complete
-                ? "bg-[var(--accent)] text-[var(--accent-ink)]"
-                : "bg-[var(--ink)] text-[var(--bg)]",
-            ].join(" ")}
-          >
-            {complete ? "Save area ✓" : "Save & return"}
-          </button>
-          {!complete && (
-            <p className="text-center text-xs text-[var(--warn)]">
-              {insp.status === "issues" &&
-              insp.findings.length === 0 &&
-              insp.pestTypes.length === 0
-                ? "Add at least one finding or pest type."
-                : "Finish treatment / device fields to mark this area complete."}
-            </p>
-          )}
-        </>
-      )}
-    </main>
   );
 }

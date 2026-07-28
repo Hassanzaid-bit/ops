@@ -12,6 +12,7 @@ import { generateFollowUpsReportFromRecord } from "@/lib/report";
 import { normalizeAreaInspection } from "@/lib/types";
 import { VISIT_TYPE_LABELS } from "@/lib/vocabulary";
 import { queryRecords, type VisitRecord } from "@/lib/visit-record";
+import { RangeFilterBar } from "@/components/RangeFilterBar";
 
 export function FollowUpReports() {
   const router = useRouter();
@@ -110,41 +111,15 @@ export function FollowUpReports() {
       </header>
 
       <section className="mb-5 space-y-3">
-        <div className="flex flex-wrap gap-3">
-          <label className="space-y-1 text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-            From
-            <input
-              type="date"
-              value={from}
-              onChange={(e) => setParam("from", e.target.value)}
-              className={inputClass}
-            />
-          </label>
-          <label className="space-y-1 text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-            To
-            <input
-              type="date"
-              value={to}
-              onChange={(e) => setParam("to", e.target.value)}
-              className={inputClass}
-            />
-          </label>
-          <label className="space-y-1 text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-            Client
-            <select
-              value={client}
-              onChange={(e) => setParam("client", e.target.value)}
-              className={inputClass}
-            >
-              <option value="">All clients</option>
-              {clients.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+        <RangeFilterBar
+          from={from}
+          to={to}
+          client={client}
+          clients={clients}
+          onFromChange={(v) => setParam("from", v)}
+          onToChange={(v) => setParam("to", v)}
+          onClientChange={(v) => setParam("client", v)}
+        />
         <input
           type="search"
           value={query}
@@ -384,6 +359,3 @@ function FollowUpDetailModal({
     </div>
   );
 }
-
-const inputClass =
-  "mt-1 block min-h-10 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 text-sm font-normal normal-case tracking-normal text-[var(--ink)]";

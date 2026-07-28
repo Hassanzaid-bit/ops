@@ -30,16 +30,10 @@ import {
   type VisitRecord,
 } from "@/lib/visit-record";
 import { VISIT_TYPE_LABELS } from "@/lib/vocabulary";
-
-function daysAgoISO(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return d.toISOString().slice(0, 10);
-}
-
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
-}
+import {
+  RangeFilterBar,
+  todayISO,
+} from "@/components/RangeFilterBar";
 
 function reportHref(
   base: "/issues" | "/follow-ups" | "/treatments",
@@ -71,9 +65,32 @@ type ChemicalModal =
   | { kind: "product"; row: ProductUsage }
   | { kind: "siteProduct"; row: ProductUsageBySite };
 
+const TONE = {
+  risk: {
+    ink: "var(--risk)",
+    soft: "var(--risk-soft)",
+    border: "#e4c8c2",
+  },
+  warn: {
+    ink: "var(--warn)",
+    soft: "var(--warn-soft)",
+    border: "#e6d4a8",
+  },
+  info: {
+    ink: "var(--info)",
+    soft: "var(--info-soft)",
+    border: "#c5d8e3",
+  },
+  chem: {
+    ink: "var(--chem)",
+    soft: "var(--chem-soft)",
+    border: "#cfd8bc",
+  },
+} as const;
+
 export function Dashboard() {
   const [records, setRecords] = useState<VisitRecord[]>([]);
-  const [from, setFrom] = useState(() => daysAgoISO(90));
+  const [from, setFrom] = useState(() => todayISO());
   const [to, setTo] = useState(() => todayISO());
   const [client, setClient] = useState("");
   const [riskModal, setRiskModal] = useState<RiskModal | null>(null);
@@ -127,6 +144,7 @@ export function Dashboard() {
       label: "Issue rate",
       value: `${issueRate(facts)}%`,
       href: hasIssues ? reportHref("/issues", issueFilter) : undefined,
+      tone: "risk" as const,
     },
     {
       label: "Follow-ups flagged",
@@ -135,11 +153,13 @@ export function Dashboard() {
         followUpsFlagged > 0
           ? reportHref("/follow-ups", issueFilter)
           : undefined,
+      tone: "warn" as const,
     },
     {
       label: "Client actions",
       value: String(countAdvice(facts, "Client action needed")),
       href: "/clients?tab=actions" as string | undefined,
+      tone: "info" as const,
     },
     {
       label: "Treatments applied",
@@ -148,64 +168,31 @@ export function Dashboard() {
         treatmentsApplied > 0
           ? reportHref("/treatments", issueFilter)
           : undefined,
+      tone: "chem" as const,
     },
   ];
 
   return (
     <div className="mx-auto max-w-6xl px-4 pb-16 pt-4">
-      <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight text-[var(--ink)]">
-            Dashboard
-          </h1>
-          <p className="mt-2 max-w-xl text-base text-[var(--ink-muted)]">
-            Client risks (issues / follow-ups) and chemical usage from submitted
-            visits.
-          </p>
-        </div>
-        <Link
-          href="/reports"
-          className="text-sm font-semibold text-[var(--accent-deep)]"
-        >
-          IPM reports →
-        </Link>
+      <header className="mb-6">
+        <h1 className="text-3xl font-semibold tracking-tight text-[var(--ink)]">
+          Dashboard
+        </h1>
+        <p className="mt-2 max-w-xl text-base text-[var(--ink-muted)]">
+          Client risks and chemical usage from submitted visits.
+        </p>
       </header>
 
-      <div className="mb-5 flex flex-wrap gap-3">
-        <label className="space-y-1 text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-          From
-          <input
-            type="date"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-            className={inputClass}
-          />
-        </label>
-        <label className="space-y-1 text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-          To
-          <input
-            type="date"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            className={inputClass}
-          />
-        </label>
-        <label className="space-y-1 text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-          Client
-          <select
-            value={client}
-            onChange={(e) => setClient(e.target.value)}
-            className={inputClass}
-          >
-            <option value="">All clients</option>
-            {clients.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+      <RangeFilterBar
+        className="mb-5"
+        from={from}
+        to={to}
+        client={client}
+        clients={clients}
+        onFromChange={setFrom}
+        onToChange={setTo}
+        onClientChange={setClient}
+      />
 
       {filtered.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[var(--line)] px-4 py-12 text-center text-sm text-[var(--ink-muted)]">
@@ -216,31 +203,49 @@ export function Dashboard() {
         <>
           <div className="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {stats.map((s) => {
+              const tone = TONE[s.tone];
               const body = (
                 <>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
+                  <p
+                    className="text-xs font-semibold uppercase tracking-wide"
+                    style={{ color: tone.ink }}
+                  >
                     {s.label}
                   </p>
-                  <p className="mt-1 text-2xl font-semibold text-[var(--ink)]">
+                  <p
+                    className="mt-1 text-2xl font-semibold tracking-tight"
+                    style={{ color: tone.ink }}
+                  >
                     {s.value}
                   </p>
                 </>
               );
               const className = [
-                "rounded-xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3",
+                "rounded-xl border px-4 py-3.5 shadow-[var(--shadow)]",
                 "href" in s && s.href
-                  ? "transition-colors hover:border-[var(--accent)]"
+                  ? "transition-[border-color,transform] hover:-translate-y-0.5"
                   : "",
               ].join(" ");
+              const style = {
+                background: tone.soft,
+                borderColor: tone.border,
+                borderLeftWidth: "3px",
+                borderLeftColor: tone.ink,
+              } as React.CSSProperties;
               if ("href" in s && s.href) {
                 return (
-                  <Link key={s.label} href={s.href} className={className}>
+                  <Link
+                    key={s.label}
+                    href={s.href}
+                    className={className}
+                    style={style}
+                  >
                     {body}
                   </Link>
                 );
               }
               return (
-                <div key={s.label} className={className}>
+                <div key={s.label} className={className} style={style}>
                   {body}
                 </div>
               );
@@ -248,9 +253,7 @@ export function Dashboard() {
           </div>
 
           <section className="mb-10 space-y-5">
-            <h2 className="text-lg font-semibold text-[var(--ink)]">
-              Client risks
-            </h2>
+            <SectionTitle tone="risk">Client risks</SectionTitle>
 
             <Table title="Highest-risk sites">
               <thead>
@@ -284,8 +287,29 @@ export function Dashboard() {
                     <td className={`${td} font-medium`}>{r.siteName}</td>
                     <td className={td}>{r.visits}</td>
                     <td className={td}>{r.issues}</td>
-                    <td className={td}>{r.issuePct}%</td>
-                    <td className={td}>{r.followUpsFlagged}</td>
+                    <td className={td}>
+                      <MetricPill
+                        value={`${r.issuePct}%`}
+                        level={
+                          r.issuePct >= 40
+                            ? "high"
+                            : r.issuePct >= 20
+                              ? "mid"
+                              : "low"
+                        }
+                      />
+                    </td>
+                    <td className={td}>
+                      {r.followUpsFlagged > 0 ? (
+                        <MetricPill
+                          value={String(r.followUpsFlagged)}
+                          level={r.followUpsFlagged >= 3 ? "mid" : "low"}
+                          tone="warn"
+                        />
+                      ) : (
+                        "0"
+                      )}
+                    </td>
                     <td className={td}>{r.lastDate}</td>
                   </tr>
                 ))}
@@ -322,7 +346,19 @@ export function Dashboard() {
                     <td className={td}>{h.clientName}</td>
                     <td className={`${td} font-medium`}>{h.siteName}</td>
                     <td className={td}>{h.area}</td>
-                    <td className={td}>{h.followUpCount}</td>
+                    <td className={td}>
+                      <MetricPill
+                        value={String(h.followUpCount)}
+                        level={
+                          h.followUpCount >= 3
+                            ? "high"
+                            : h.followUpCount >= 2
+                              ? "mid"
+                              : "low"
+                        }
+                        tone="warn"
+                      />
+                    </td>
                     <td className={td}>{h.lastDate}</td>
                   </tr>
                 ))}
@@ -356,7 +392,13 @@ export function Dashboard() {
                       aria-label={`View details for ${f.finding}`}
                     >
                       <td className={td}>{f.finding}</td>
-                      <td className={td}>{f.count}</td>
+                      <td className={td}>
+                        <MetricPill
+                          value={String(f.count)}
+                          level={f.count >= 5 ? "mid" : "low"}
+                          tone="info"
+                        />
+                      </td>
                       <td className={td}>{f.lastDate}</td>
                     </tr>
                   ))}
@@ -389,7 +431,13 @@ export function Dashboard() {
                       aria-label={`View details for ${p.pestType}`}
                     >
                       <td className={td}>{p.pestType}</td>
-                      <td className={td}>{p.occurrences}</td>
+                      <td className={td}>
+                        <MetricPill
+                          value={String(p.occurrences)}
+                          level={p.occurrences >= 5 ? "mid" : "low"}
+                          tone="risk"
+                        />
+                      </td>
                       <td className={td}>{p.lastDate}</td>
                     </tr>
                   ))}
@@ -400,9 +448,7 @@ export function Dashboard() {
           </section>
 
           <section className="space-y-5">
-            <h2 className="text-lg font-semibold text-[var(--ink)]">
-              Chemical usage
-            </h2>
+            <SectionTitle tone="chem">Chemical usage</SectionTitle>
 
             <Table title="Product usage">
               <thead>
@@ -432,7 +478,13 @@ export function Dashboard() {
                     aria-label={`View chemical details for ${p.product}`}
                   >
                     <td className={`${td} font-medium`}>{p.product}</td>
-                    <td className={td}>{p.applications}</td>
+                    <td className={td}>
+                      <MetricPill
+                        value={String(p.applications)}
+                        level={p.applications >= 5 ? "mid" : "low"}
+                        tone="chem"
+                      />
+                    </td>
                     <td className={td}>{p.sitesTouched}</td>
                     <td className={td}>{p.lastDate}</td>
                   </tr>
@@ -669,17 +721,22 @@ function ClientRiskModal({
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4">
           {modal.kind === "site" && (
             <>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                <Stat label="Visits" value={String(modal.row.visits)} />
-                <Stat label="Issues" value={String(modal.row.issues)} />
-                <Stat label="Issue %" value={`${modal.row.issuePct}%`} />
-                <Stat
+              <dl className="grid grid-cols-2 gap-x-8 gap-y-4 text-sm">
+                <TextRow label="Client" value={modal.row.clientName} />
+                <TextRow label="Branch" value={modal.row.siteName} />
+                <TextRow label="Visits" value={String(modal.row.visits)} />
+                <TextRow label="Issues" value={String(modal.row.issues)} />
+                <TextRow label="Issue %" value={`${modal.row.issuePct}%`} />
+                <TextRow
                   label="Follow-ups"
                   value={String(modal.row.followUpsFlagged)}
                 />
-                <Stat label="Areas checked" value={String(modal.row.areas)} />
-                <Stat label="Last visit" value={modal.row.lastDate} />
-              </div>
+                <TextRow
+                  label="Areas checked"
+                  value={String(modal.row.areas)}
+                />
+                <TextRow label="Last visit" value={modal.row.lastDate} />
+              </dl>
 
               <DetailBlock title="Recent visits">
                 {siteRecords.length === 0 ? (
@@ -771,14 +828,16 @@ function ClientRiskModal({
 
           {modal.kind === "hotspot" && (
             <>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                <Stat
+              <dl className="grid grid-cols-2 gap-x-8 gap-y-4 text-sm">
+                <TextRow label="Client" value={modal.row.clientName} />
+                <TextRow label="Branch" value={modal.row.siteName} />
+                <TextRow label="Area" value={modal.row.area} />
+                <TextRow
                   label="Follow-up count"
                   value={String(modal.row.followUpCount)}
                 />
-                <Stat label="Last flagged" value={modal.row.lastDate} />
-                <Stat label="Branch" value={modal.row.siteName} />
-              </div>
+                <TextRow label="Last flagged" value={modal.row.lastDate} />
+              </dl>
 
               <DetailBlock title="Related visits">
                 {hotspotFacts.length === 0 ? (
@@ -825,10 +884,14 @@ function ClientRiskModal({
 
           {modal.kind === "finding" && (
             <>
-              <div className="grid grid-cols-2 gap-3">
-                <Stat label="Occurrences" value={String(modal.row.count)} />
-                <Stat label="Last seen" value={modal.row.lastDate} />
-              </div>
+              <dl className="grid grid-cols-2 gap-x-8 gap-y-4 text-sm">
+                <TextRow label="Finding" value={modal.row.finding} />
+                <TextRow
+                  label="Occurrences"
+                  value={String(modal.row.count)}
+                />
+                <TextRow label="Last seen" value={modal.row.lastDate} />
+              </dl>
               <DetailBlock title="Where it showed up">
                 {findingFacts.length === 0 ? (
                   <EmptyNote />
@@ -862,13 +925,14 @@ function ClientRiskModal({
 
           {modal.kind === "pest" && (
             <>
-              <div className="grid grid-cols-2 gap-3">
-                <Stat
+              <dl className="grid grid-cols-2 gap-x-8 gap-y-4 text-sm">
+                <TextRow label="Pest" value={modal.row.pestType} />
+                <TextRow
                   label="Occurrences"
                   value={String(modal.row.occurrences)}
                 />
-                <Stat label="Last seen" value={modal.row.lastDate} />
-              </div>
+                <TextRow label="Last seen" value={modal.row.lastDate} />
+              </dl>
               <DetailBlock title="Where it showed up">
                 {pestFacts.length === 0 ? (
                   <EmptyNote />
@@ -1022,23 +1086,29 @@ function ChemicalUsageModal({
 
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4">
           {modal.kind === "product" ? (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              <Stat
+            <dl className="grid grid-cols-2 gap-x-8 gap-y-4 text-sm">
+              <TextRow label="Product" value={modal.row.product} />
+              <TextRow
                 label="Applications"
                 value={String(modal.row.applications)}
               />
-              <Stat label="Sites" value={String(modal.row.sitesTouched)} />
-              <Stat label="Last used" value={modal.row.lastDate} />
-            </div>
+              <TextRow
+                label="Sites"
+                value={String(modal.row.sitesTouched)}
+              />
+              <TextRow label="Last used" value={modal.row.lastDate} />
+            </dl>
           ) : (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              <Stat
+            <dl className="grid grid-cols-2 gap-x-8 gap-y-4 text-sm">
+              <TextRow label="Client" value={modal.row.clientName} />
+              <TextRow label="Branch" value={modal.row.siteName} />
+              <TextRow label="Product" value={modal.row.product} />
+              <TextRow
                 label="Applications"
                 value={String(modal.row.applications)}
               />
-              <Stat label="Quantities" value={modal.row.quantities} />
-              <Stat label="Branch" value={modal.row.siteName} />
-            </div>
+              <TextRow label="Quantities" value={modal.row.quantities} />
+            </dl>
           )}
 
           {modal.kind === "product" && (
@@ -1103,13 +1173,57 @@ function ChemicalUsageModal({
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function SectionTitle({
+  children,
+  tone,
+}: {
+  children: React.ReactNode;
+  tone: keyof typeof TONE;
+}) {
+  const t = TONE[tone];
   return (
-    <div className="rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-        {label}
-      </p>
-      <p className="mt-0.5 text-sm font-semibold text-[var(--ink)]">{value}</p>
+    <h2 className="flex items-center gap-2.5 text-lg font-semibold text-[var(--ink)]">
+      <span
+        className="inline-block h-5 w-1.5 rounded-full"
+        style={{ background: t.ink }}
+        aria-hidden
+      />
+      {children}
+    </h2>
+  );
+}
+
+function MetricPill({
+  value,
+  level,
+  tone = "risk",
+}: {
+  value: string;
+  level: "low" | "mid" | "high";
+  tone?: keyof typeof TONE;
+}) {
+  const t = TONE[tone];
+  if (level === "low") {
+    return <span className="text-[var(--ink)]">{value}</span>;
+  }
+  return (
+    <span
+      className="inline-flex rounded-md px-2 py-0.5 text-xs font-semibold"
+      style={{
+        background: t.soft,
+        color: t.ink,
+      }}
+    >
+      {value}
+    </span>
+  );
+}
+
+function TextRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 text-sm text-[var(--ink)]">
+      <dt className="inline font-semibold text-[var(--ink-muted)]">{label}: </dt>
+      <dd className="inline">{value}</dd>
     </div>
   );
 }
@@ -1135,8 +1249,6 @@ function EmptyNote({ text = "No data in this range." }: { text?: string }) {
   return <p className="text-sm text-[var(--ink-muted)]">{text}</p>;
 }
 
-const inputClass =
-  "mt-1 block min-h-10 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 text-sm font-normal normal-case tracking-normal text-[var(--ink)]";
 const thRow = "border-b border-[var(--line)] bg-[var(--bg)]";
 const th =
   "px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]";

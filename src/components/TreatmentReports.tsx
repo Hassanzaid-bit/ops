@@ -12,6 +12,7 @@ import { generateTreatmentsReportFromRecord } from "@/lib/report";
 import { normalizeAreaInspection, normalizeTreatment } from "@/lib/types";
 import { formatTreatmentLine, VISIT_TYPE_LABELS } from "@/lib/vocabulary";
 import { queryRecords, type VisitRecord } from "@/lib/visit-record";
+import { RangeFilterBar } from "@/components/RangeFilterBar";
 
 export function TreatmentReports() {
   const router = useRouter();
@@ -118,46 +119,22 @@ export function TreatmentReports() {
       </header>
 
       <section className="mb-5 space-y-3">
+        <RangeFilterBar
+          from={from}
+          to={to}
+          client={client}
+          clients={clients}
+          onFromChange={(v) => setParam("from", v)}
+          onToChange={(v) => setParam("to", v)}
+          onClientChange={(v) => setParam("client", v)}
+        />
         <div className="flex flex-wrap gap-3">
-          <label className="space-y-1 text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-            From
-            <input
-              type="date"
-              value={from}
-              onChange={(e) => setParam("from", e.target.value)}
-              className={inputClass}
-            />
-          </label>
-          <label className="space-y-1 text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-            To
-            <input
-              type="date"
-              value={to}
-              onChange={(e) => setParam("to", e.target.value)}
-              className={inputClass}
-            />
-          </label>
-          <label className="space-y-1 text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-            Client
-            <select
-              value={client}
-              onChange={(e) => setParam("client", e.target.value)}
-              className={inputClass}
-            >
-              <option value="">All clients</option>
-              {clients.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="space-y-1 text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-            Product
+          <label className="flex min-w-[10rem] flex-1 items-center gap-2 sm:max-w-[14rem] sm:flex-none">
+            <span className="sr-only">Product</span>
             <select
               value={product}
               onChange={(e) => setParam("product", e.target.value)}
-              className={inputClass}
+              className="min-h-11 w-full rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 text-sm text-[var(--ink)] outline-none focus:border-[var(--accent)]"
             >
               <option value="">All products</option>
               {products.map((p) => (
@@ -167,14 +144,14 @@ export function TreatmentReports() {
               ))}
             </select>
           </label>
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search client, branch, area, product…"
+            className="min-h-11 min-w-[12rem] flex-1 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 text-base outline-none focus:border-[var(--accent)]"
+          />
         </div>
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search client, branch, area, product…"
-          className="min-h-11 w-full rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 text-base outline-none focus:border-[var(--accent)]"
-        />
       </section>
 
       <section className="space-y-2">
@@ -413,6 +390,3 @@ function TreatmentDetailModal({
     </div>
   );
 }
-
-const inputClass =
-  "mt-1 block min-h-10 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 text-sm font-normal normal-case tracking-normal text-[var(--ink)]";

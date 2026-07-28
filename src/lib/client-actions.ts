@@ -50,7 +50,12 @@ function flaggedFromRecords(records: VisitRecord[]): Omit<
   for (const r of records) {
     for (const raw of r.areas) {
       const a = normalizeAreaInspection(raw, raw.area);
-      if (!a.advice.includes(CLIENT_ACTION_LABEL)) continue;
+      if (
+        !a.advice.includes(CLIENT_ACTION_LABEL) &&
+        !a.recommendation.includes(CLIENT_ACTION_LABEL)
+      ) {
+        continue;
+      }
       out.push({
         id: actionId(r.id, a.area),
         recordId: r.id,

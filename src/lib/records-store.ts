@@ -3,7 +3,7 @@ import { SEED_RECORDS } from "./seed-records";
 
 const STORE_KEY = "qzone-records";
 /** Bump when seed data shape changes so browsers pick up live KFC samples */
-const SEEDED_KEY = "qzone-records-seeded-v6";
+const SEEDED_KEY = "qzone-records-seeded-v8";
 
 function readRaw(): VisitRecord[] {
   if (typeof window === "undefined") return [];
@@ -41,6 +41,8 @@ export function ensureSeedRecords(): VisitRecord[] {
     localStorage.removeItem("qzone-records-seeded-v3");
     localStorage.removeItem("qzone-records-seeded-v4");
     localStorage.removeItem("qzone-records-seeded-v5");
+    localStorage.removeItem("qzone-records-seeded-v6");
+    localStorage.removeItem("qzone-records-seeded-v7");
     return merged;
   }
 

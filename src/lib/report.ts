@@ -3,6 +3,7 @@ import {
   isDeviceArea,
   normalizeAreaInspection,
   normalizeTreatment,
+  renderPointPhrase,
 } from "./types";
 import type { VisitRecord } from "./visit-record";
 import { formatTreatmentLine, VISIT_TYPE_LABELS } from "./vocabulary";
@@ -19,22 +20,27 @@ function list(items: string[]): string {
   return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
 }
 
-/** Fully auto IPM bullets from structured capture */
+/** Fully auto IPM bullets from structured capture (schema v2 points) */
 function areaSection(raw: AreaInspection): string {
   const insp = normalizeAreaInspection(raw, raw.area);
   const title = (insp.area || "Unspecified").toUpperCase();
   const lines: string[] = [];
 
-  if (insp.status === "clean") {
+  const started = insp.points.filter((p) => p.outcome !== null);
+  if (started.length > 0) {
+    for (const p of started) {
+      const phrase = renderPointPhrase(p);
+      if (phrase) lines.push(bullet(phrase));
+      if (p.note.trim()) lines.push(bullet(p.note.trim()));
+    }
+  } else if (insp.status === "clean") {
     lines.push(
       bullet(
         "The area was inspected and found to be clean, orderly, and well maintained.",
       ),
     );
     lines.push(
-      bullet(
-        "No conditions conducive to pest harbourage were observed.",
-      ),
+      bullet("No conditions conducive to pest harbourage were observed."),
     );
   } else if (insp.status === "issues") {
     lines.push(bullet("The area was inspected as part of the IPM programme."));
@@ -52,6 +58,14 @@ function areaSection(raw: AreaInspection): string {
     }
   } else {
     lines.push(bullet("The area was inspected as part of the IPM programme."));
+  }
+
+  if (insp.treatmentApplied !== "none") {
+    lines.push(
+      bullet(
+        `${insp.treatmentApplied === "corrective" ? "Corrective" : "Preventive"} treatment classification applied for this area.`,
+      ),
+    );
   }
 
   const treatment = normalizeTreatment(insp.treatment);
@@ -94,7 +108,8 @@ function areaSection(raw: AreaInspection): string {
     }
   }
 
-  for (const tip of insp.advice) {
+  const tips = insp.recommendation ? [insp.recommendation] : insp.advice;
+  for (const tip of tips) {
     if (tip.toLowerCase().includes("staff advised")) {
       lines.push(
         bullet(
@@ -110,21 +125,25 @@ function areaSection(raw: AreaInspection): string {
     } else if (tip.toLowerCase().includes("follow-up")) {
       lines.push(bullet("A follow-up visit is recommended for this area."));
     } else if (tip.toLowerCase().includes("client action")) {
-      lines.push(bullet("Client action is required to address the conditions noted."));
+      lines.push(
+        bullet("Client action is required to address the conditions noted."),
+      );
     } else if (tip.toLowerCase().includes("hygiene")) {
       lines.push(
         bullet(
           "Maintaining high hygiene standards is recommended to support effective pest management.",
         ),
       );
-    } else if (tip.toLowerCase().includes("monitoring")) {
+    } else if (tip.toLowerCase().includes("monitor")) {
       lines.push(
         bullet(
-          "Routine inspection and monitoring should continue as part of the IPM programme.",
+          tip.endsWith(".")
+            ? tip
+            : `${tip}.`,
         ),
       );
     } else {
-      lines.push(bullet(tip));
+      lines.push(bullet(tip.endsWith(".") ? tip : `${tip}.`));
     }
   }
 
@@ -288,6 +307,11 @@ export function generateInsectramBlock(
     const insp = normalizeAreaInspection(raw, raw.area);
     lines.push(`[${insp.area}]`);
     lines.push(`Status: ${insp.status ?? "-"}`);
+    for (const p of insp.points.filter((x) => x.outcome !== null)) {
+      lines.push(
+        `  Point: ${p.label} | ${p.outcome} | thr=${p.thresholdLevel} | pest=${p.identification.pestType ?? "-"} | action=${p.actionTier}`,
+      );
+    }
     lines.push(`Findings: ${insp.findings.join(", ") || "-"}`);
     lines.push(`Pests: ${insp.pestTypes.join(", ") || "-"}`);
     const tx = normalizeTreatment(insp.treatment);
@@ -302,7 +326,7 @@ export function generateInsectramBlock(
         `Devices: ${insp.deviceService.count || "-"} | ${insp.deviceService.actions.join(", ") || "-"}`,
       );
     }
-    lines.push(`Advice: ${insp.advice.join(", ") || "-"}`);
+    lines.push(`Advice: ${insp.recommendation || insp.advice.join(", ") || "-"}`);
     lines.push("---");
   }
 

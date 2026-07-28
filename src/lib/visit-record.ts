@@ -142,7 +142,9 @@ export function toAreaFacts(records: VisitRecord[]): AreaFact[] {
         quantity: tx.applications.map((x) => x.quantity).join("; "),
         recommendations: a.advice,
         photoCount: a.photoCount,
-        followUpFlagged: a.advice.includes("Follow-up visit required"),
+        followUpFlagged:
+          a.advice.includes("Follow-up visit required") ||
+          a.recommendation.toLowerCase().includes("follow-up"),
       });
     }
   }
