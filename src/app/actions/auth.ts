@@ -18,6 +18,7 @@ export type LoginState =
         password?: string[];
       };
       message?: string;
+      success?: boolean;
     }
   | undefined;
 
@@ -43,8 +44,24 @@ export async function login(
     return { message: "Invalid email or password." };
   }
 
-  await createSession(toSessionUser(user));
-  redirect("/dashboard");
+  try {
+    await createSession(toSessionUser(user));
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.includes("SESSION_SECRET")
+    ) {
+      return {
+        message:
+          "Server auth is not configured. Set SESSION_SECRET in Vercel and redeploy.",
+      };
+    }
+    throw error;
+  }
+
+  // Return success and let the client hard-navigate so the session cookie
+  // is reliably applied before proxy checks on Vercel.
+  return { success: true };
 }
 
 export async function logout() {

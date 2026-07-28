@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect } from "react";
 import { login, type LoginState } from "@/app/actions/auth";
 
 export default function LoginPage() {
@@ -8,6 +8,12 @@ export default function LoginPage() {
     login,
     undefined,
   );
+
+  useEffect(() => {
+    if (state?.success) {
+      window.location.assign("/dashboard");
+    }
+  }, [state?.success]);
 
   return (
     <div className="flex min-h-dvh items-center justify-center bg-[var(--bg)] px-4 py-10">

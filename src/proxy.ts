@@ -5,6 +5,11 @@ import { SESSION_COOKIE, decrypt } from "@/lib/session-token";
 export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const isLoginRoute = path === "/login";
+  const isAuthApiRoute = path.startsWith("/api/auth/");
+
+  if (isAuthApiRoute) {
+    return NextResponse.next();
+  }
 
   const cookie = request.cookies.get(SESSION_COOKIE)?.value;
   const session = await decrypt(cookie);

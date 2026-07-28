@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
-import { logout } from "@/app/actions/auth";
+import { useEffect, useState } from "react";
 import {
   ROLE_LABELS,
   initials,
@@ -64,7 +63,6 @@ export function AppShell({
   const [collapsedReportsOpen, setCollapsedReportsOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [loggingOut, startLogout] = useTransition();
 
   useEffect(() => {
     try {
@@ -101,9 +99,6 @@ export function AppShell({
 
   function handleLogout() {
     setProfileOpen(false);
-    startLogout(() => {
-      void logout();
-    });
   }
 
   return (
@@ -323,15 +318,16 @@ export function AppShell({
                       {user.email}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={handleLogout}
-                    disabled={loggingOut}
-                    className="flex w-full px-3 py-3 text-left text-sm font-semibold text-[var(--ink)] transition-colors hover:bg-[var(--bg)] disabled:opacity-60"
-                  >
-                    {loggingOut ? "Logging out…" : "Log out"}
-                  </button>
+                  <form action="/api/auth/logout" method="POST">
+                    <button
+                      type="submit"
+                      role="menuitem"
+                      onClick={handleLogout}
+                      className="flex w-full px-3 py-3 text-left text-sm font-semibold text-[var(--ink)] transition-colors hover:bg-[var(--bg)]"
+                    >
+                      Log out
+                    </button>
+                  </form>
                 </div>
               </>
             )}
