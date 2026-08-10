@@ -1,49 +1,41 @@
 import type { VisitDraft } from "./types";
+import { apiGet } from "./api-fetch";
+import {
+  listLocalDraftMeta,
+  mergeDraftMeta,
+} from "./offline/draft-local";
+import { isBrowserOnline } from "./offline/local-storage";
+import {
+  clearDraftOfflineAware,
+  loadDraftOfflineAware,
+  saveDraftOfflineAware,
+} from "./offline/sync";
 
-const PREFIX = "qzone-draft:";
-
-function key(visitId: string) {
-  return `${PREFIX}${visitId}`;
+export async function loadDraft(visitId: string): Promise<VisitDraft | null> {
+  return loadDraftOfflineAware(visitId);
 }
 
-export function loadDraft(visitId: string): VisitDraft | null {
-  if (typeof window === "undefined") return null;
+export async function saveDraft(draft: VisitDraft): Promise<void> {
+  return saveDraftOfflineAware(draft);
+}
+
+export async function clearDraft(visitId: string): Promise<void> {
+  return clearDraftOfflineAware(visitId);
+}
+
+export async function listDraftMeta(): Promise<
+  { visitId: string; updatedAt: string; submittedAt?: string }[]
+> {
+  const local = listLocalDraftMeta();
+
+  if (!isBrowserOnline()) return local;
+
   try {
-    const raw = localStorage.getItem(key(visitId));
-    if (!raw) return null;
-    return JSON.parse(raw) as VisitDraft;
+    const remote = await apiGet<
+      { visitId: string; updatedAt: string; submittedAt?: string }[]
+    >("/api/jobs/drafts-meta");
+    return mergeDraftMeta(local, remote);
   } catch {
-    return null;
+    return local;
   }
-}
-
-export function saveDraft(draft: VisitDraft): void {
-  if (typeof window === "undefined") return;
-  const next = { ...draft, updatedAt: new Date().toISOString() };
-  localStorage.setItem(key(draft.visitId), JSON.stringify(next));
-}
-
-export function clearDraft(visitId: string): void {
-  if (typeof window === "undefined") return;
-  localStorage.removeItem(key(visitId));
-}
-
-export function listDraftMeta(): { visitId: string; updatedAt: string; submittedAt?: string }[] {
-  if (typeof window === "undefined") return [];
-  const out: { visitId: string; updatedAt: string; submittedAt?: string }[] = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    if (!k?.startsWith(PREFIX)) continue;
-    try {
-      const d = JSON.parse(localStorage.getItem(k)!) as VisitDraft;
-      out.push({
-        visitId: d.visitId,
-        updatedAt: d.updatedAt,
-        submittedAt: d.submittedAt,
-      });
-    } catch {
-      /* skip */
-    }
-  }
-  return out;
 }

@@ -1,14 +1,15 @@
 export type UserRole = "technician" | "manager" | "admin";
 
 export type SessionUser = {
+  id: string;
   name: string;
   role: UserRole;
   email: string;
 };
 
 export const ROLE_LABELS: Record<UserRole, string> = {
-  technician: "Technician",
-  manager: "Manager",
+  technician: "PMP",
+  manager: "Team Manager",
   admin: "Admin",
 };
 

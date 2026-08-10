@@ -22,10 +22,16 @@ import {
   emptyTreatmentRow,
   isAreaComplete,
   isPointComplete,
+  isRedDotArea,
   normalizeTreatment,
   type AreaInspection,
   type InspectionPoint,
 } from "@/lib/types";
+import {
+  compressImageFiles,
+  maxPhotosPerArea,
+  mergeAreaPhotos,
+} from "../lib/photos";
 import {
   DEVICE_ACTIONS,
   DEVICE_COUNTS,
@@ -65,6 +71,8 @@ export function AreaCaptureScreen({
   );
   const [recEdited, setRecEdited] = useState(false);
   const [stepHint, setStepHint] = useState<string | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoHint, setPhotoHint] = useState<string | null>(null);
 
   const stepIndex = STEPS.findIndex((s) => s.id === step);
   const isFirst = stepIndex === 0;
@@ -136,6 +144,24 @@ export function AreaCaptureScreen({
       treatment: { applications: [], serviceActions: [] },
     });
     onTreatmentOnChange(false);
+  }
+
+  async function addPhotosFromFiles(fileList: FileList | null) {
+    if (!fileList?.length) return;
+    setPhotoBusy(true);
+    setPhotoHint(null);
+    try {
+      const { photos: incoming, errors } = await compressImageFiles(fileList);
+      const { photos, truncated } = mergeAreaPhotos(insp.photos, incoming);
+      onChange({ photos, photoCount: photos.length });
+      const messages = [...errors];
+      if (truncated > 0) {
+        messages.push(`Limit is ${maxPhotosPerArea()} photos per area`);
+      }
+      setPhotoHint(messages[0] ?? null);
+    } finally {
+      setPhotoBusy(false);
+    }
   }
 
   function treatmentStepOk(): boolean {
@@ -213,6 +239,12 @@ export function AreaCaptureScreen({
             ? ` · ${donePoints}/${insp.points.length} points`
             : ""}
         </p>
+        {isRedDotArea(insp.area) && (
+          <p className="mt-2 rounded-lg border border-[var(--warn)]/40 bg-[var(--warn-soft)] px-3 py-2 text-xs leading-relaxed text-[var(--ink)]">
+            Record outstanding Red Dot items and any new structural gaps here
+            before continuing the site walk.
+          </p>
+        )}
       </div>
 
       <nav
@@ -544,31 +576,110 @@ export function AreaCaptureScreen({
                 Photos (optional)
               </p>
               <p className="mt-1 text-xs text-[var(--ink-muted)]">
-                Attach evidence photos for this area. Count is stored for now.
+                Add multiple evidence photos. You can keep adding until you hit{" "}
+                {maxPhotosPerArea()} per area.
               </p>
             </div>
-            <label className="flex min-h-28 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-[var(--line)] bg-[var(--surface)] px-3 py-6 text-center">
-              <span className="text-sm font-semibold text-[var(--ink)]">
-                {insp.photoCount === 0
-                  ? "Add photos"
-                  : `${insp.photoCount} attached`}
-              </span>
-              <span className="text-xs text-[var(--ink-muted)]">
-                Tap to add from camera or gallery
-              </span>
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                multiple
-                className="sr-only"
-                onChange={(e) => {
-                  const n = e.target.files?.length ?? 0;
-                  if (n > 0) onChange({ photoCount: insp.photoCount + n });
-                  e.target.value = "";
-                }}
-              />
-            </label>
+
+            {insp.photos.length > 0 && (
+              <ul className="grid grid-cols-3 gap-2">
+                {insp.photos.map((photo) => (
+                  <li
+                    key={photo.id}
+                    className="relative overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--bg)]"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={photo.dataUrl}
+                      alt={photo.name}
+                      className="aspect-square w-full object-cover"
+                    />
+                    <button
+                      type="button"
+                      aria-label={`Remove ${photo.name}`}
+                      onClick={() => {
+                        const photos = insp.photos.filter(
+                          (p) => p.id !== photo.id,
+                        );
+                        onChange({ photos, photoCount: photos.length });
+                      }}
+                      className="absolute right-1 top-1 flex h-7 w-7 items-center justify-center rounded-full bg-[var(--ink)]/80 text-xs font-bold text-[var(--bg)]"
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+              <label
+                className={[
+                  "flex min-h-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-[var(--line)] bg-[var(--surface)] px-2 py-4 text-center",
+                  insp.photos.length >= maxPhotosPerArea()
+                    ? "pointer-events-none opacity-40"
+                    : "",
+                ].join(" ")}
+              >
+                <span className="text-sm font-semibold text-[var(--ink)]">
+                  Gallery
+                </span>
+                <span className="text-[11px] text-[var(--ink-muted)]">
+                  Add multiple
+                </span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="sr-only"
+                  disabled={
+                    photoBusy || insp.photos.length >= maxPhotosPerArea()
+                  }
+                  onChange={(e) => {
+                    void addPhotosFromFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              <label
+                className={[
+                  "flex min-h-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-[var(--line)] bg-[var(--surface)] px-2 py-4 text-center",
+                  insp.photos.length >= maxPhotosPerArea()
+                    ? "pointer-events-none opacity-40"
+                    : "",
+                ].join(" ")}
+              >
+                <span className="text-sm font-semibold text-[var(--ink)]">
+                  Camera
+                </span>
+                <span className="text-[11px] text-[var(--ink-muted)]">
+                  Take / add more
+                </span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  multiple
+                  className="sr-only"
+                  disabled={
+                    photoBusy || insp.photos.length >= maxPhotosPerArea()
+                  }
+                  onChange={(e) => {
+                    void addPhotosFromFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            </div>
+
+            <p className="text-center text-xs text-[var(--ink-muted)]">
+              {photoBusy
+                ? "Compressing photos…"
+                : insp.photos.length === 0
+                  ? "No photos yet"
+                  : `${insp.photos.length} photo${insp.photos.length === 1 ? "" : "s"} attached`}
+              {photoHint ? ` · ${photoHint}` : ""}
+            </p>
           </section>
         )}
       </div>

@@ -1,29 +1,48 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { getSite, listTodayVisits } from "@/lib/ops-store";
+import { useCallback, useEffect, useState } from "react";
+import { SYNC_STATUS_EVENT } from "@/lib/offline/sync";
+import { listSites, listTodayVisits, refreshFieldCache } from "@/lib/ops-store";
 import { listDraftMeta } from "@/lib/storage";
-import type { ScheduledVisit } from "@/lib/types";
+import type { ScheduledVisit, Site } from "@/lib/types";
 import { VISIT_TYPE_LABELS } from "@/lib/vocabulary";
 
 type DraftState = "none" | "draft" | "submitted";
 
 export function TodayBoard() {
   const [visits, setVisits] = useState<ScheduledVisit[]>([]);
+  const [sitesById, setSitesById] = useState<Record<string, Site>>({});
   const [meta, setMeta] = useState<Record<string, DraftState>>({});
 
-  useEffect(() => {
-    const today = listTodayVisits();
-    setVisits(today);
-    const map: Record<string, DraftState> = {};
-    for (const v of today) map[v.id] = "none";
-    for (const d of listDraftMeta()) {
-      if (!(d.visitId in map)) continue;
-      map[d.visitId] = d.submittedAt ? "submitted" : "draft";
-    }
-    setMeta(map);
+  const refresh = useCallback(() => {
+    void (async () => {
+      await refreshFieldCache();
+      const [today, sites] = await Promise.all([
+        listTodayVisits(),
+        listSites(),
+      ]);
+      setVisits(today);
+      setSitesById(Object.fromEntries(sites.map((s) => [s.id, s])));
+      const map: Record<string, DraftState> = {};
+      for (const v of today) map[v.id] = "none";
+      for (const d of await listDraftMeta()) {
+        if (!(d.visitId in map)) continue;
+        map[d.visitId] = d.submittedAt ? "submitted" : "draft";
+      }
+      setMeta(map);
+    })();
   }, []);
+
+  useEffect(() => {
+    refresh();
+    window.addEventListener(SYNC_STATUS_EVENT, refresh);
+    window.addEventListener("online", refresh);
+    return () => {
+      window.removeEventListener(SYNC_STATUS_EVENT, refresh);
+      window.removeEventListener("online", refresh);
+    };
+  }, [refresh]);
 
   const today = new Date().toLocaleDateString(undefined, {
     weekday: "long",
@@ -42,7 +61,11 @@ export function TodayBoard() {
         </h1>
         <p className="mt-2 text-base text-[var(--ink-muted)]">
           {today}
-          {visits[0]?.technicianName ? ` · ${visits[0].technicianName}` : ""}
+          {visits[0]
+            ? visits[0].assignmentMode === "team"
+              ? ` · Team jobs for ${visits[0].technicianName}`
+              : ` · ${visits[0].technicianName}`
+            : ""}
         </p>
       </header>
 
@@ -85,7 +108,7 @@ export function TodayBoard() {
             </thead>
             <tbody>
               {visits.map((visit) => {
-                const site = getSite(visit.siteId);
+                const site = sitesById[visit.siteId];
                 const state = meta[visit.id] ?? "none";
                 return (
                   <tr
@@ -148,8 +171,8 @@ export function TodayBoard() {
       </section>
 
       <p className="mt-6 text-sm leading-relaxed text-[var(--ink-muted)]">
-        Jobs are set under Jobs. Capture on-site
-        with chips — report writes itself.
+        Jobs are set under Jobs. Capture on-site with chips — report writes
+        itself. Open today&apos;s jobs once while online to use them offline.
       </p>
     </div>
   );

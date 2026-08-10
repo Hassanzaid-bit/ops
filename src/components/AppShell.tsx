@@ -1,34 +1,31 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import {
   ROLE_LABELS,
   initials,
   type SessionUser,
 } from "@/lib/auth-types";
+import {
+  REPORT_LINKS,
+  isAdmin,
+  primaryNavForRole,
+  showReportsNav,
+  type NavItem,
+} from "@/lib/permissions";
 
 const SIDEBAR_KEY = "qzone-sidebar-collapsed";
 
-const PRIMARY_NAV = [
-  {
-    href: "/dashboard",
-    label: "Dashboard",
-    short: "Dash",
-    icon: IconDashboard,
-  },
-  { href: "/clients", label: "Clients", short: "Clients", icon: IconClients },
-  { href: "/", label: "Field Ops", short: "Field", icon: IconField },
-  { href: "/jobs", label: "Jobs", short: "Jobs", icon: IconJobs },
-] as const;
-
-const REPORT_LINKS = [
-  { href: "/issues", label: "Issues report" },
-  { href: "/follow-ups", label: "Follow-ups report" },
-  { href: "/treatments", label: "Treatments report" },
-  { href: "/reports", label: "IPM service reports" },
-] as const;
+const NAV_ICONS = {
+  "/dashboard": IconDashboard,
+  "/clients": IconClients,
+  "/": IconField,
+  "/jobs": IconJobs,
+  "/admin/users": IconUsers,
+} as const;
 
 function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
@@ -51,14 +48,18 @@ function isReportsPath(pathname: string) {
 export function AppShell({
   children,
   user,
+  statusBar,
 }: {
   children: React.ReactNode;
   user: SessionUser;
+  statusBar?: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const reportsActive = isReportsPath(pathname);
+  const primaryNav = primaryNavForRole(user.role);
+  const showReports = showReportsNav(user.role);
+  const reportsActive = showReports && isReportsPath(pathname);
   const [reportsOpen, setReportsOpen] = useState(reportsActive);
-  const [mobileReportsOpen, setMobileReportsOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [collapsedReportsOpen, setCollapsedReportsOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
@@ -87,188 +88,161 @@ export function AppShell({
   }, [reportsActive]);
 
   useEffect(() => {
-    setMobileReportsOpen(false);
+    setMobileNavOpen(false);
     setCollapsedReportsOpen(false);
     setProfileOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [mobileNavOpen]);
 
   function toggleCollapsed() {
     setCollapsed((c) => !c);
     setCollapsedReportsOpen(false);
   }
 
-  function handleLogout() {
+  function closeMobileNav() {
+    setMobileNavOpen(false);
+  }
+
+  async function handleLogout() {
     setProfileOpen(false);
+    closeMobileNav();
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      window.location.assign("/login");
+    }
   }
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden md:flex-row">
+      {mobileNavOpen && (
+        <button
+          type="button"
+          aria-label="Close navigation menu"
+          className="fixed inset-0 z-40 bg-black/40 md:hidden"
+          onClick={closeMobileNav}
+        />
+      )}
+
       <aside
         className={[
-          "hidden h-dvh shrink-0 flex-col overflow-y-auto bg-[var(--accent)] text-white transition-[width] duration-200 md:flex",
-          collapsed ? "w-[4.25rem]" : "w-56",
+          "fixed inset-y-0 left-0 z-50 flex h-dvh w-56 shrink-0 flex-col overflow-y-auto bg-[var(--accent)] text-white transition-transform duration-200",
+          mobileNavOpen ? "translate-x-0" : "-translate-x-full",
+          "md:relative md:z-auto md:translate-x-0 md:transition-[width]",
+          collapsed ? "md:w-[4.25rem]" : "md:w-56",
         ].join(" ")}
       >
         <div
           className={[
-            "flex items-center border-b border-white/15",
-            collapsed ? "justify-center px-2 py-3" : "gap-2 px-3 py-3",
+            "border-b border-white/15 px-3 py-3",
+            collapsed ? "md:flex md:flex-col md:items-center md:gap-2" : "",
           ].join(" ")}
         >
-          <button
-            type="button"
-            onClick={toggleCollapsed}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-white/90 transition-colors hover:bg-white/10 hover:text-white"
+          <div
+            className={[
+              "flex w-full items-center gap-2",
+              collapsed ? "md:justify-center" : "justify-between",
+            ].join(" ")}
           >
-            <IconMenu className="h-5 w-5" />
-          </button>
-          {!collapsed && (
-            <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/70">
-                Q Zone
-              </p>
-              <p className="text-base font-semibold leading-tight tracking-tight">
-                Field Ops
-              </p>
-            </div>
-          )}
-        </div>
-
-        <nav
-          className={[
-            "flex flex-1 flex-col gap-1",
-            collapsed ? "p-2" : "p-3",
-          ].join(" ")}
-        >
-          {PRIMARY_NAV.map((item) => {
-            const active = isActive(pathname, item.href);
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                title={item.label}
-                className={[
-                  "flex items-center rounded-lg text-sm font-semibold transition-colors",
-                  collapsed
-                    ? "justify-center px-2 py-2.5"
-                    : "gap-2.5 px-3 py-2.5",
-                  active
-                    ? "bg-white text-[var(--accent)]"
-                    : "text-white/85 hover:bg-white/10 hover:text-white",
-                ].join(" ")}
-              >
-                <Icon className="h-5 w-5 shrink-0" />
-                {!collapsed && <span>{item.label}</span>}
-              </Link>
-            );
-          })}
-
-          <div className="relative mt-1">
-            <button
-              type="button"
-              onClick={() => {
-                if (collapsed) {
-                  setCollapsedReportsOpen((o) => !o);
-                } else {
-                  setReportsOpen((o) => !o);
-                }
-              }}
-              aria-expanded={collapsed ? collapsedReportsOpen : reportsOpen}
-              title="Reports"
+            <div
               className={[
-                "flex w-full items-center rounded-lg text-sm font-semibold transition-colors",
-                collapsed
-                  ? "justify-center px-2 py-2.5"
-                  : "justify-between gap-2 px-3 py-2.5 text-left",
-                reportsActive
-                  ? "bg-white/15 text-white"
-                  : "text-white/85 hover:bg-white/10 hover:text-white",
+                "flex min-w-0 items-center gap-2",
+                collapsed ? "md:w-full md:justify-center" : "flex-1",
               ].join(" ")}
             >
-              <span className="flex items-center gap-2.5">
-                <IconReports className="h-5 w-5 shrink-0" />
-                {!collapsed && <span>Reports</span>}
-              </span>
-              {!collapsed && (
-                <span
-                  className={[
-                    "text-xs transition-transform",
-                    reportsOpen ? "rotate-180" : "",
-                  ].join(" ")}
-                  aria-hidden
-                >
-                  ▾
-                </span>
-              )}
-            </button>
+              <button
+                type="button"
+                onClick={toggleCollapsed}
+                aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-lg text-white/90 transition-colors hover:bg-white/10 hover:text-white md:flex"
+              >
+                <IconMenu className="h-5 w-5" />
+              </button>
 
-            {!collapsed && reportsOpen && (
-              <div className="mt-1 ml-3 space-y-0.5 border-l border-white/20 py-1 pl-2">
-                {REPORT_LINKS.map((item) => {
-                  const active = isActive(pathname, item.href);
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className={[
-                        "block rounded-lg px-3 py-2 text-sm font-semibold transition-colors",
-                        active
-                          ? "bg-white text-[var(--accent)]"
-                          : "text-white/80 hover:bg-white/10 hover:text-white",
-                      ].join(" ")}
-                    >
-                      {item.label}
-                    </Link>
-                  );
-                })}
-              </div>
-            )}
-
-            {collapsed && collapsedReportsOpen && (
-              <>
-                <button
-                  type="button"
-                  aria-label="Close reports menu"
-                  className="fixed inset-0 z-40"
-                  onClick={() => setCollapsedReportsOpen(false)}
-                />
-                <div className="absolute left-[calc(100%+0.4rem)] top-0 z-50 min-w-[12rem] overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] py-1 shadow-[var(--shadow)]">
-                  {REPORT_LINKS.map((item) => {
-                    const active = isActive(pathname, item.href);
-                    return (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        className={[
-                          "block px-3 py-2.5 text-sm font-semibold",
-                          active
-                            ? "bg-[var(--bg)] text-[var(--accent)]"
-                            : "text-[var(--ink)] hover:bg-[var(--bg)]",
-                        ].join(" ")}
-                      >
-                        {item.label}
-                      </Link>
-                    );
-                  })}
+              <div
+                className={[
+                  "min-w-0",
+                  collapsed ? "md:hidden" : "flex-1",
+                ].join(" ")}
+              >
+                <div className="overflow-hidden rounded-lg bg-white p-1.5 shadow-sm">
+                  <Image
+                    src="/qzone-logo.png"
+                    alt="QZone Integrated Pest Management"
+                    width={576}
+                    height={224}
+                    className="h-auto w-full max-w-[9.5rem]"
+                    priority
+                  />
                 </div>
-              </>
-            )}
+              </div>
+
+              <div className={collapsed ? "hidden md:block" : "hidden"}>
+                <div className="overflow-hidden rounded-md bg-white p-1 shadow-sm">
+                  <Image
+                    src="/qzone-logo.png"
+                    alt="QZone"
+                    width={576}
+                    height={224}
+                    className="h-7 w-7 object-contain"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={closeMobileNav}
+              aria-label="Close navigation menu"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-white/90 transition-colors hover:bg-white/10 hover:text-white md:hidden"
+            >
+              <IconClose className="h-5 w-5" />
+            </button>
           </div>
-        </nav>
+        </div>
+
+        <SidebarNav
+          pathname={pathname}
+          primaryNav={primaryNav}
+          showReports={showReports}
+          reportsActive={reportsActive}
+          reportsOpen={reportsOpen}
+          setReportsOpen={setReportsOpen}
+          collapsed={collapsed}
+          collapsedReportsOpen={collapsedReportsOpen}
+          setCollapsedReportsOpen={setCollapsedReportsOpen}
+          onNavigate={closeMobileNav}
+        />
       </aside>
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pb-20 md:pb-0">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <header className="z-30 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-[var(--line)] bg-[var(--surface)]/95 px-4 backdrop-blur">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-[var(--ink)] md:hidden">
-              Q Zone Field Ops
-            </p>
-            <p className="hidden truncate text-sm text-[var(--ink-muted)] md:block">
-              Integrated pest management · Field operations
-            </p>
+          <div className="flex min-w-0 items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(true)}
+              aria-label="Open navigation menu"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[var(--line)] text-[var(--ink)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] md:hidden"
+            >
+              <IconMenu className="h-5 w-5" />
+            </button>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-[var(--ink)] md:hidden">
+                Q Zone Field Ops
+              </p>
+              <p className="hidden truncate text-sm text-[var(--ink-muted)] md:block">
+                Integrated pest management · Field operations
+              </p>
+            </div>
           </div>
 
           <div className="relative shrink-0">
@@ -318,92 +292,208 @@ export function AppShell({
                       {user.email}
                     </p>
                   </div>
-                  <form action="/api/auth/logout" method="POST">
-                    <button
-                      type="submit"
+                  {isAdmin(user.role) && (
+                    <Link
+                      href="/admin/users"
                       role="menuitem"
-                      onClick={handleLogout}
-                      className="flex w-full px-3 py-3 text-left text-sm font-semibold text-[var(--ink)] transition-colors hover:bg-[var(--bg)]"
+                      onClick={() => setProfileOpen(false)}
+                      className="flex w-full border-b border-[var(--line)] px-3 py-3 text-left text-sm font-semibold text-[var(--ink)] transition-colors hover:bg-[var(--bg)]"
                     >
-                      Log out
-                    </button>
-                  </form>
+                      Users
+                    </Link>
+                  )}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => void handleLogout()}
+                    className="flex w-full px-3 py-3 text-left text-sm font-semibold text-[var(--ink)] transition-colors hover:bg-[var(--bg)]"
+                  >
+                    Log out
+                  </button>
                 </div>
               </>
             )}
           </div>
         </header>
 
+        {statusBar}
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">{children}</div>
       </div>
-
-      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--line)] bg-[var(--surface)]/95 backdrop-blur md:hidden">
-        <ul className="mx-auto flex max-w-lg">
-          {PRIMARY_NAV.map((item) => {
-            const active = isActive(pathname, item.href);
-            return (
-              <li key={item.href} className="flex-1">
-                <Link
-                  href={item.href}
-                  className={[
-                    "flex min-h-12 flex-col items-center justify-center px-1 text-xs font-semibold",
-                    active
-                      ? "text-[var(--accent)]"
-                      : "text-[var(--ink-muted)]",
-                  ].join(" ")}
-                >
-                  {item.short}
-                </Link>
-              </li>
-            );
-          })}
-          <li className="relative flex-1">
-            <button
-              type="button"
-              onClick={() => setMobileReportsOpen((o) => !o)}
-              aria-expanded={mobileReportsOpen}
-              className={[
-                "flex min-h-12 w-full flex-col items-center justify-center px-1 text-xs font-semibold",
-                reportsActive || mobileReportsOpen
-                  ? "text-[var(--accent)]"
-                  : "text-[var(--ink-muted)]",
-              ].join(" ")}
-            >
-              Reports
-            </button>
-            {mobileReportsOpen && (
-              <>
-                <button
-                  type="button"
-                  aria-label="Close reports menu"
-                  className="fixed inset-0 z-40"
-                  onClick={() => setMobileReportsOpen(false)}
-                />
-                <div className="absolute bottom-[calc(100%+0.5rem)] right-1 z-50 min-w-[11rem] overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
-                  {REPORT_LINKS.map((item) => {
-                    const active = isActive(pathname, item.href);
-                    return (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        className={[
-                          "block px-3 py-3 text-sm font-semibold",
-                          active
-                            ? "bg-[var(--bg)] text-[var(--accent)]"
-                            : "text-[var(--ink)]",
-                        ].join(" ")}
-                      >
-                        {item.label}
-                      </Link>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-          </li>
-        </ul>
-      </nav>
     </div>
+  );
+}
+
+function SidebarNav({
+  pathname,
+  primaryNav,
+  showReports,
+  reportsActive,
+  reportsOpen,
+  setReportsOpen,
+  collapsed,
+  collapsedReportsOpen,
+  setCollapsedReportsOpen,
+  onNavigate,
+}: {
+  pathname: string;
+  primaryNav: NavItem[];
+  showReports: boolean;
+  reportsActive: boolean;
+  reportsOpen: boolean;
+  setReportsOpen: Dispatch<SetStateAction<boolean>>;
+  collapsed: boolean;
+  collapsedReportsOpen: boolean;
+  setCollapsedReportsOpen: Dispatch<SetStateAction<boolean>>;
+  onNavigate: () => void;
+}) {
+  return (
+    <nav
+      className={[
+        "flex flex-1 flex-col gap-1 p-3",
+        collapsed ? "md:p-2" : "",
+      ].join(" ")}
+    >
+      {primaryNav.map((item) => {
+        const active = isActive(pathname, item.href);
+        const Icon = NAV_ICONS[item.href as keyof typeof NAV_ICONS] ?? IconField;
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            title={item.label}
+            onClick={onNavigate}
+            className={[
+              "flex items-center rounded-lg text-sm font-semibold transition-colors",
+              "gap-2.5 px-3 py-2.5",
+              collapsed
+                ? "md:justify-center md:px-2 md:py-2.5"
+                : "",
+              active
+                ? "bg-white text-[var(--accent)]"
+                : "text-white/85 hover:bg-white/10 hover:text-white",
+            ].join(" ")}
+          >
+            <Icon className="h-5 w-5 shrink-0" />
+            <span className={collapsed ? "md:hidden" : ""}>{item.label}</span>
+          </Link>
+        );
+      })}
+
+      {showReports && (
+        <div className="relative mt-1">
+          <button
+            type="button"
+            onClick={() => {
+              const desktopCollapsed =
+                collapsed &&
+                typeof window !== "undefined" &&
+                window.matchMedia("(min-width: 768px)").matches;
+              if (desktopCollapsed) {
+                setCollapsedReportsOpen((o) => !o);
+              } else {
+                setReportsOpen((o) => !o);
+              }
+            }}
+            aria-expanded={reportsOpen || collapsedReportsOpen}
+            title="Reports"
+            className={[
+              "flex w-full items-center rounded-lg text-sm font-semibold transition-colors",
+              "justify-between gap-2 px-3 py-2.5 text-left",
+              collapsed
+                ? "md:justify-center md:px-2 md:py-2.5"
+                : "",
+              reportsActive
+                ? "bg-white/15 text-white"
+                : "text-white/85 hover:bg-white/10 hover:text-white",
+            ].join(" ")}
+          >
+            <span className="flex items-center gap-2.5">
+              <IconReports className="h-5 w-5 shrink-0" />
+              <span className={collapsed ? "md:hidden" : ""}>Reports</span>
+            </span>
+            {!collapsed ? (
+              <span
+                className={[
+                  "text-xs transition-transform",
+                  reportsOpen ? "rotate-180" : "",
+                ].join(" ")}
+                aria-hidden
+              >
+                ▾
+              </span>
+            ) : (
+              <span
+                className={[
+                  "text-xs transition-transform md:hidden",
+                  reportsOpen ? "rotate-180" : "",
+                ].join(" ")}
+                aria-hidden
+              >
+                ▾
+              </span>
+            )}
+          </button>
+
+          <div
+            className={[
+              "mt-1 ml-3 space-y-0.5 border-l border-white/20 py-1 pl-2",
+              reportsOpen ? "" : "hidden",
+              collapsed ? "md:hidden" : "",
+            ].join(" ")}
+          >
+              {REPORT_LINKS.map((item) => {
+                const active = isActive(pathname, item.href);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={onNavigate}
+                    className={[
+                      "block rounded-lg px-3 py-2 text-sm font-semibold transition-colors",
+                      active
+                        ? "bg-white text-[var(--accent)]"
+                        : "text-white/80 hover:bg-white/10 hover:text-white",
+                    ].join(" ")}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+
+          {collapsed && collapsedReportsOpen && (
+            <>
+              <button
+                type="button"
+                aria-label="Close reports menu"
+                className="fixed inset-0 z-40"
+                onClick={() => setCollapsedReportsOpen(false)}
+              />
+              <div className="absolute left-[calc(100%+0.4rem)] top-0 z-50 min-w-[12rem] overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] py-1 shadow-[var(--shadow)]">
+                {REPORT_LINKS.map((item) => {
+                  const active = isActive(pathname, item.href);
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={onNavigate}
+                      className={[
+                        "block px-3 py-2.5 text-sm font-semibold",
+                        active
+                          ? "bg-[var(--bg)] text-[var(--accent)]"
+                          : "text-[var(--ink)] hover:bg-[var(--bg)]",
+                      ].join(" ")}
+                    >
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </nav>
   );
 }
 
@@ -490,6 +580,23 @@ function IconReports({ className }: { className?: string }) {
   );
 }
 
+function IconUsers({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      aria-hidden
+    >
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="3.5" />
+      <path d="M19 8v6M22 11h-6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function IconMenu({ className }: { className?: string }) {
   return (
     <svg
@@ -501,6 +608,21 @@ function IconMenu({ className }: { className?: string }) {
       aria-hidden
     >
       <path d="M4 7h16M4 12h16M4 17h16" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconClose({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      aria-hidden
+    >
+      <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />
     </svg>
   );
 }

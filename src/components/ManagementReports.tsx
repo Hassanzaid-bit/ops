@@ -39,7 +39,7 @@ export function ManagementReports() {
   const [reportQuery, setReportQuery] = useState("");
 
   useEffect(() => {
-    setRecords(listRecords());
+    void listRecords().then(setRecords);
   }, []);
 
   useEffect(() => {

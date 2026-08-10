@@ -4,17 +4,36 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { listSites, listVisitsForDate, todayISO } from "@/lib/ops-store";
 import { parentVisitLabel } from "@/lib/parent-visits";
-import type { Site } from "@/lib/types";
+import { checklistItemCount } from "@/lib/site-checklist";
+import type { ScheduledVisit, Site } from "@/lib/types";
 import { VISIT_TYPE_LABELS } from "@/lib/vocabulary";
 
 export function JobsAdmin() {
   const [date, setDate] = useState(todayISO);
   const [sites, setSites] = useState<Site[]>([]);
-  const [visits, setVisits] = useState(() => listVisitsForDate(todayISO()));
+  const [visits, setVisits] = useState<ScheduledVisit[]>([]);
+  const [parentLabels, setParentLabels] = useState<Record<string, string>>({});
 
   const refresh = useCallback(() => {
-    setSites(listSites());
-    setVisits(listVisitsForDate(date));
+    void (async () => {
+      const [nextSites, nextVisits] = await Promise.all([
+        listSites(),
+        listVisitsForDate(date),
+      ]);
+      setSites(nextSites);
+      setVisits(nextVisits);
+
+      const labels: Record<string, string> = {};
+      await Promise.all(
+        nextVisits
+          .filter((v) => v.parentVisitId)
+          .map(async (v) => {
+            const label = await parentVisitLabel(v.parentVisitId!);
+            if (label) labels[v.id] = label;
+          }),
+      );
+      setParentLabels(labels);
+    })();
   }, [date]);
 
   useEffect(() => {
@@ -63,7 +82,7 @@ export function JobsAdmin() {
                     "Branch",
                     "Visit type",
                     "Original visit",
-                    "Technician",
+                    "Assignment",
                     "Areas",
                     "Actions",
                   ] as const
@@ -84,11 +103,11 @@ export function JobsAdmin() {
                   v.visitType === "follow_up" && v.followUpAreas?.length
                     ? v.followUpAreas.join(", ")
                     : site
-                      ? `${site.areas.length} checklist areas`
+                      ? `${checklistItemCount(site.checklistAreas)} checklist areas`
                       : "—";
                 const parentLabel =
                   v.visitType === "follow_up" && v.parentVisitId
-                    ? parentVisitLabel(v.parentVisitId)
+                    ? parentLabels[v.id]
                     : null;
                 return (
                   <tr
@@ -113,7 +132,16 @@ export function JobsAdmin() {
                         : "—"}
                     </td>
                     <td className="px-3 py-3 text-[var(--ink)]">
-                      {v.technicianName}
+                      {v.assignmentMode === "team" ? (
+                        <span>
+                          Team · {v.technicianName}
+                          {(v.teamMemberIds?.length ?? 0) > 1
+                            ? ` +${(v.teamMemberIds?.length ?? 1) - 1}`
+                            : ""}
+                        </span>
+                      ) : (
+                        <span>Solo · {v.technicianName}</span>
+                      )}
                     </td>
                     <td
                       className="max-w-[200px] truncate px-3 py-3 text-[var(--ink-muted)]"

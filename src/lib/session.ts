@@ -23,6 +23,7 @@ export function sessionCookieOptions(expiresAt: Date) {
 export async function createSessionToken(user: SessionUser) {
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   const value = await encrypt({
+    id: user.id,
     email: user.email,
     name: user.name,
     role: user.role,
@@ -39,7 +40,10 @@ export async function createSession(user: SessionUser) {
 
 export async function deleteSession() {
   const cookieStore = await cookies();
-  cookieStore.delete(SESSION_COOKIE);
+  cookieStore.set(SESSION_COOKIE, "", {
+    ...sessionCookieOptions(new Date(0)),
+    maxAge: 0,
+  });
 }
 
 export async function getSession(): Promise<SessionUser | null> {

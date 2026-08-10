@@ -4,6 +4,7 @@ import type { SessionUser, UserRole } from "@/lib/auth-types";
 export const SESSION_COOKIE = "qzone-session";
 
 export type SessionPayload = {
+  id: string;
   email: string;
   name: string;
   role: UserRole;
@@ -37,14 +38,16 @@ export async function decrypt(
     const email = payload.email;
     const name = payload.name;
     const role = payload.role;
+    const id = payload.id;
     if (
+      typeof id !== "string" ||
       typeof email !== "string" ||
       typeof name !== "string" ||
       (role !== "technician" && role !== "manager" && role !== "admin")
     ) {
       return null;
     }
-    return { email, name, role };
+    return { id, email, name, role };
   } catch {
     return null;
   }

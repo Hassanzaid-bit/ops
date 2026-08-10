@@ -1,5 +1,8 @@
+import Image from "next/image";
+import { LoginPasswordField } from "@/components/LoginPasswordField";
+
 const ERROR_MESSAGES: Record<string, string> = {
-  invalid: "Invalid email or password.",
+  invalid: "Invalid email/username or password.",
   config:
     "Server auth is not configured. Set SESSION_SECRET in Vercel and redeploy.",
 };
@@ -15,16 +18,25 @@ export default async function LoginPage({ searchParams }: Props) {
   return (
     <div className="flex min-h-dvh items-center justify-center bg-[var(--bg)] px-4 py-10">
       <div className="w-full max-w-md space-y-6">
-        <header className="space-y-2 text-center">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent)]">
-            Q Zone
-          </p>
-          <h1 className="text-3xl font-semibold tracking-tight text-[var(--ink)]">
-            Field Ops
-          </h1>
-          <p className="text-sm text-[var(--ink-muted)]">
-            Sign in with your email and password to continue.
-          </p>
+        <header className="space-y-4 text-center">
+          <div className="mx-auto w-full max-w-[18rem] overflow-hidden rounded-2xl shadow-[var(--shadow)]">
+            <Image
+              src="/qzone-logo.png"
+              alt="QZone Integrated Pest Management"
+              width={576}
+              height={224}
+              priority
+              className="h-auto w-full"
+            />
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink)]">
+              Field Ops
+            </h1>
+            <p className="text-sm text-[var(--ink-muted)]">
+              Sign in with your email or username and password.
+            </p>
+          </div>
         </header>
 
         <form
@@ -34,16 +46,16 @@ export default async function LoginPage({ searchParams }: Props) {
         >
           <div className="space-y-1.5">
             <label
-              htmlFor="email"
+              htmlFor="login"
               className="block text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]"
             >
-              Email
+              Email or username
             </label>
             <input
-              id="email"
-              name="email"
-              type="email"
-              autoComplete="email"
+              id="login"
+              name="login"
+              type="text"
+              autoComplete="username"
               required
               className="w-full rounded-xl border border-[var(--line)] bg-[var(--bg)] px-3 py-2.5 text-sm text-[var(--ink)] outline-none transition-colors focus:border-[var(--accent)]"
             />
@@ -56,14 +68,7 @@ export default async function LoginPage({ searchParams }: Props) {
             >
               Password
             </label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              required
-              className="w-full rounded-xl border border-[var(--line)] bg-[var(--bg)] px-3 py-2.5 text-sm text-[var(--ink)] outline-none transition-colors focus:border-[var(--accent)]"
-            />
+            <LoginPasswordField />
           </div>
 
           {message && (

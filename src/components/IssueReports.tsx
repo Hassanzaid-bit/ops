@@ -28,7 +28,7 @@ export function IssueReports() {
   const siteId = searchParams.get("siteId") ?? "";
 
   useEffect(() => {
-    setRecords(listRecords());
+    void listRecords().then(setRecords);
   }, []);
 
   useEffect(() => {

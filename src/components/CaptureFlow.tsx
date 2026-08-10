@@ -13,11 +13,14 @@ import {
   emptyAreaInspection,
   isAreaComplete,
   isDeviceArea,
+  isRedDotArea,
+  jobCoveragePercent,
   normalizeAreaInspection,
   normalizeTreatment,
   syncAreaDerivedFields,
   type AreaInspection,
   type ScheduledVisit,
+  type Site,
   type VisitDraft,
 } from "@/lib/types";
 import { buildVisitRecord } from "@/lib/visit-record";
@@ -27,60 +30,83 @@ type Props = { visit: ScheduledVisit };
 type Screen = "list" | "area" | "review";
 
 export function CaptureFlow({ visit }: Props) {
-  const site = getSite(visit.siteId)!;
-  const checklist = getAvailableAreas(visit);
-
+  const [site, setSite] = useState<Site | null>(null);
+  const [checklist, setChecklist] = useState<string[]>([]);
   const [screen, setScreen] = useState<Screen>("list");
   const [activeArea, setActiveArea] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [draft, setDraft] = useState<VisitDraft>(() => ({
     visitId: visit.id,
-    areas: checklist.map((a) => emptyAreaInspection(a)),
+    areas: [],
     updatedAt: new Date().toISOString(),
   }));
   const [hydrated, setHydrated] = useState(false);
   const [copyFlash, setCopyFlash] = useState<string | null>(null);
   const [treatmentOn, setTreatmentOn] = useState(false);
+  const [offlineSite, setOfflineSite] = useState(false);
 
   const persist = useCallback((next: VisitDraft) => {
     setDraft(next);
-    saveDraft(next);
+    void saveDraft(next);
   }, []);
 
   useEffect(() => {
-    const areas = getAvailableAreas(visit);
-    const existing = loadDraft(visit.id);
-    if (existing?.areas?.length) {
-      const byName = new Map(
-        existing.areas.map((a) => [
-          a.area,
-          normalizeAreaInspection(a, a.area),
-        ]),
-      );
-      const merged = areas.map(
-        (name) => byName.get(name) ?? emptyAreaInspection(name),
-      );
-      setDraft({
-        visitId: visit.id,
-        areas: merged,
-        updatedAt: existing.updatedAt,
-        submittedAt: existing.submittedAt,
-      });
-      if (existing.submittedAt) setScreen("review");
-    } else {
-      setDraft({
-        visitId: visit.id,
-        areas: areas.map((a) => emptyAreaInspection(a)),
-        updatedAt: new Date().toISOString(),
-      });
-    }
-    setHydrated(true);
-  }, [visit.id, visit]);
+    void (async () => {
+      const [loadedSite, areas, existing] = await Promise.all([
+        getSite(visit.siteId),
+        getAvailableAreas(visit),
+        loadDraft(visit.id),
+      ]);
+      setSite(loadedSite ?? null);
+      setOfflineSite(!loadedSite && !navigator.onLine);
+      setChecklist(areas);
+
+      if (existing?.areas?.length) {
+        const byName = new Map(
+          existing.areas.map((a) => [
+            a.area,
+            normalizeAreaInspection(a, a.area),
+          ]),
+        );
+        const merged = areas.map(
+          (name) => byName.get(name) ?? emptyAreaInspection(name),
+        );
+        setDraft({
+          visitId: visit.id,
+          areas: merged,
+          updatedAt: existing.updatedAt,
+          submittedAt: existing.submittedAt,
+        });
+        if (existing.submittedAt) setScreen("review");
+      } else {
+        setDraft({
+          visitId: visit.id,
+          areas: areas.map((a) => emptyAreaInspection(a)),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+      setHydrated(true);
+    })();
+  }, [visit]);
 
   const completedCount = draft.areas.filter(isAreaComplete).length;
   const totalCount = draft.areas.length;
+  const coveragePercent = jobCoveragePercent(draft.areas);
   const remainingAreas = draft.areas.filter((a) => !isAreaComplete(a));
   const canReview = allAreasComplete(draft.areas);
+  const orderedAreas = useMemo(() => {
+    const incomplete = draft.areas.filter((a) => !isAreaComplete(a));
+    const complete = draft.areas.filter(isAreaComplete);
+    const rank = (a: AreaInspection) => (isRedDotArea(a.area) ? 0 : 1);
+    return [
+      ...incomplete.sort((a, b) => rank(a) - rank(b) || a.area.localeCompare(b.area)),
+      ...complete.sort((a, b) => rank(a) - rank(b) || a.area.localeCompare(b.area)),
+    ];
+  }, [draft.areas]);
+  const assignmentLabel =
+    visit.assignmentMode === "team"
+      ? `Team · lead ${visit.technicianName}${(visit.teamMemberIds?.length ?? 0) > 1 ? ` · ${(visit.teamMemberIds?.length ?? 1)} PMPs` : ""}`
+      : `Solo · ${visit.technicianName}`;
 
   const current = useMemo(() => {
     if (!activeArea) return null;
@@ -114,17 +140,24 @@ export function CaptureFlow({ visit }: Props) {
   }
 
   function submitLocal() {
-    if (!canReview) return;
+    if (!canReview || !site) return;
     const submittedAt = new Date().toISOString();
     const next = { ...draft, submittedAt };
     persist(next);
-    upsertRecord(buildVisitRecord(visit, site, draft.areas, submittedAt));
-    setCopyFlash("Report saved");
-    setTimeout(() => setCopyFlash(null), 2500);
+    void upsertRecord(
+      buildVisitRecord(visit, site, draft.areas, submittedAt),
+    ).then(({ synced }) => {
+      setCopyFlash(
+        synced
+          ? "Report saved"
+          : "Saved offline — will sync when connected",
+      );
+      setTimeout(() => setCopyFlash(null), 2500);
+    });
   }
 
   const report = useMemo(
-    () => generateReport(visit, site, draft.areas),
+    () => (site ? generateReport(visit, site, draft.areas) : ""),
     [visit, site, draft.areas],
   );
 
@@ -132,6 +165,21 @@ export function CaptureFlow({ visit }: Props) {
     return (
       <div className="mx-auto max-w-lg px-4 py-10 text-[var(--ink-muted)]">
         Loading visit…
+      </div>
+    );
+  }
+
+  if (!site) {
+    return (
+      <div className="mx-auto max-w-lg space-y-3 px-4 py-10">
+        <p className="text-[var(--ink)]">
+          {offlineSite
+            ? "This job isn’t available offline yet. Open it once while online to cache the checklist."
+            : "Site details for this job could not be loaded."}
+        </p>
+        <Link href="/" className="text-[var(--accent-deep)]">
+          ← Today&apos;s jobs
+        </Link>
       </div>
     );
   }
@@ -160,20 +208,21 @@ export function CaptureFlow({ visit }: Props) {
                 {site.siteName}
               </h1>
               <p className="text-sm text-[var(--ink-muted)]">{site.clientName}</p>
+              <p className="text-xs text-[var(--ink-muted)]">{assignmentLabel}</p>
             </div>
             {screen === "list" && (
               <div className="w-[9.5rem] shrink-0 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-2.5 py-2">
                 <p className="text-[11px] font-semibold leading-snug text-[var(--ink)]">
-                  {completedCount} of {totalCount} done
+                  {coveragePercent}% coverage
                 </p>
                 <p className="text-[11px] text-[var(--ink-muted)]">
-                  {totalCount - completedCount} left
+                  {completedCount} of {totalCount} done
                 </p>
                 <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-[var(--line)]">
                   <div
                     className="h-full rounded-full bg-[var(--accent)] transition-[width]"
                     style={{
-                      width: `${totalCount ? (completedCount / totalCount) * 100 : 0}%`,
+                      width: `${coveragePercent}%`,
                     }}
                   />
                 </div>
@@ -201,9 +250,9 @@ export function CaptureFlow({ visit }: Props) {
           </div>
 
           <ul className="overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)]">
-            {[...remainingAreas, ...draft.areas.filter(isAreaComplete)].map(
-              (a) => {
+            {orderedAreas.map((a) => {
                 const done = isAreaComplete(a);
+                const redDot = isRedDotArea(a.area);
                 return (
                   <li
                     key={a.area}
@@ -215,6 +264,7 @@ export function CaptureFlow({ visit }: Props) {
                       className={[
                         "flex min-h-11 w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm",
                         done ? "bg-[var(--ok-soft)]/50" : "",
+                        redDot && !done ? "bg-[var(--warn-soft)]/40" : "",
                       ].join(" ")}
                     >
                       <span
@@ -224,6 +274,11 @@ export function CaptureFlow({ visit }: Props) {
                         ].join(" ")}
                       >
                         {done ? `${a.area} ✓` : a.area}
+                        {redDot ? (
+                          <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--warn)]">
+                            Start here
+                          </span>
+                        ) : null}
                       </span>
                       <span
                         className={[
@@ -238,8 +293,7 @@ export function CaptureFlow({ visit }: Props) {
                     </button>
                   </li>
                 );
-              },
-            )}
+              })}
             {draft.areas.length === 0 && (
               <li className="px-3 py-8 text-center text-sm text-[var(--ink-muted)]">
                 No areas on this checklist.
@@ -305,7 +359,7 @@ export function CaptureFlow({ visit }: Props) {
             type="button"
             className="text-sm text-[var(--ink-muted)] underline"
             onClick={() => {
-              clearDraft(visit.id);
+              void clearDraft(visit.id);
               setDraft({
                 visitId: visit.id,
                 areas: checklist.map((a) => emptyAreaInspection(a)),

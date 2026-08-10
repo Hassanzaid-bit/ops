@@ -17,7 +17,7 @@ export default function VisitPage({ params }: Props) {
   );
 
   useEffect(() => {
-    setVisit(getVisit(id) ?? null);
+    void getVisit(id).then((v) => setVisit(v ?? null));
   }, [id]);
 
   if (visit === undefined) {
@@ -32,8 +32,8 @@ export default function VisitPage({ params }: Props) {
     return (
       <div className="mx-auto max-w-lg space-y-3 px-4 py-10">
         <p className="text-[var(--ink)]">Job not found.</p>
-        <Link href="/jobs" className="text-[var(--accent-deep)]">
-          Manage jobs →
+        <Link href="/" className="text-[var(--accent-deep)]">
+          Back to Field Ops →
         </Link>
       </div>
     );

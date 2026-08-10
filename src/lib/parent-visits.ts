@@ -8,22 +8,21 @@ export type ParentVisitOption = {
   siteId: string;
   date: string;
   label: string;
-  /** Issue areas from a submitted record, if available */
   issueAreas: string[];
 };
 
-/**
- * Candidate original visits for a follow-up: prior full inspections
- * (scheduled jobs + submitted records) for the branch.
- */
-export function listParentVisitOptions(opts: {
+export async function listParentVisitOptions(opts: {
   siteId?: string;
   excludeVisitId?: string;
-}): ParentVisitOption[] {
-  const sites = listSites();
+}): Promise<ParentVisitOption[]> {
+  const [sites, visits, records] = await Promise.all([
+    listSites(),
+    listVisits(),
+    listRecords(),
+  ]);
   const byId = new Map<string, ParentVisitOption>();
 
-  for (const v of listVisits()) {
+  for (const v of visits) {
     if (v.visitType !== "full_inspection") continue;
     if (opts.excludeVisitId && v.id === opts.excludeVisitId) continue;
     if (opts.siteId && v.siteId !== opts.siteId) continue;
@@ -40,7 +39,7 @@ export function listParentVisitOptions(opts: {
     });
   }
 
-  for (const r of listRecords()) {
+  for (const r of records) {
     if (r.visitType !== "full_inspection") continue;
     if (opts.excludeVisitId && r.visitId === opts.excludeVisitId) continue;
     if (opts.siteId && r.siteId !== opts.siteId) continue;
@@ -67,11 +66,15 @@ export function listParentVisitOptions(opts: {
   );
 }
 
-export function parentVisitLabel(parentVisitId: string): string | null {
-  const opt = listParentVisitOptions({}).find((o) => o.id === parentVisitId);
+export async function parentVisitLabel(
+  parentVisitId: string,
+): Promise<string | null> {
+  const opt = (await listParentVisitOptions({})).find(
+    (o) => o.id === parentVisitId,
+  );
   if (opt) return opt.label;
-  const visit = listVisits().find((v) => v.id === parentVisitId);
+  const visit = await listVisits().then((v) => v.find((x) => x.id === parentVisitId));
   if (!visit) return null;
-  const site = listSites().find((s) => s.id === visit.siteId);
+  const site = (await listSites()).find((s) => s.id === visit.siteId);
   return `${visit.date} · ${site ? `${site.clientName} · ${site.siteName}` : "Visit"} · ${visit.technicianName}`;
 }

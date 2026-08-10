@@ -23,6 +23,12 @@ export type ClientAction = {
 const STORE_KEY = "qzone-client-actions";
 export const CLIENT_ACTION_LABEL = "Client action needed";
 
+export const CLIENT_ACTION_STATUS_LABELS: Record<ClientActionStatus, string> = {
+  open: "Open",
+  in_progress: "In progress",
+  done: "Done",
+};
+
 function actionId(recordId: string, area: string): string {
   return `${recordId}::${area}`;
 }
@@ -73,12 +79,8 @@ function flaggedFromRecords(records: VisitRecord[]): Omit<
   return out;
 }
 
-/**
- * Merge visit-derived client-action flags into the local queue.
- * Preserves status/notes for existing ids; creates open items for new flags.
- */
 export function syncClientActionsFromRecords(
-  records: VisitRecord[] = listRecords(),
+  records: VisitRecord[],
 ): ClientAction[] {
   const existing = readRaw();
   const byId = new Map(existing.map((a) => [a.id, a]));
@@ -112,8 +114,9 @@ export function syncClientActionsFromRecords(
   return merged;
 }
 
-export function listClientActions(): ClientAction[] {
-  return syncClientActionsFromRecords();
+export async function listClientActions(): Promise<ClientAction[]> {
+  const records = await listRecords();
+  return syncClientActionsFromRecords(records);
 }
 
 export function updateClientAction(
@@ -133,15 +136,9 @@ export function updateClientAction(
   return next;
 }
 
-export function countOpenClientActions(actions?: ClientAction[]): number {
-  const list = actions ?? listClientActions();
+export async function countOpenClientActions(): Promise<number> {
+  const list = await listClientActions();
   return list.filter(
     (a) => a.status === "open" || a.status === "in_progress",
   ).length;
 }
-
-export const CLIENT_ACTION_STATUS_LABELS: Record<ClientActionStatus, string> = {
-  open: "Open",
-  in_progress: "In progress",
-  done: "Done",
-};

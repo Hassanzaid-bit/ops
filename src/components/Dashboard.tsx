@@ -99,7 +99,8 @@ export function Dashboard() {
   );
 
   useEffect(() => {
-    setRecords(listRecords());
+    setRecords([]);
+    void listRecords().then(setRecords);
   }, []);
 
   const clients = useMemo(
@@ -158,7 +159,7 @@ export function Dashboard() {
     {
       label: "Client actions",
       value: String(countAdvice(facts, "Client action needed")),
-      href: "/clients?tab=actions" as string | undefined,
+      href: "/clients/actions" as string | undefined,
       tone: "info" as const,
     },
     {

@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
 import { z } from "zod";
+import { homePath } from "@/lib/permissions";
 import {
   SESSION_COOKIE,
   createSessionToken,
   sessionCookieOptions,
 } from "@/lib/session";
-import { findUserByEmail, toSessionUser } from "@/lib/users";
+import { toSessionUser, verifyUserPassword } from "@/lib/users";
 
 const LoginFormSchema = z.object({
-  email: z.email({ error: "Enter a valid email." }).trim(),
+  login: z.string().trim().min(1, { error: "Email or username is required." }),
   password: z.string().min(1, { error: "Password is required." }),
 });
 
@@ -24,7 +24,7 @@ function loginRedirect(request: Request, error?: string) {
 export async function POST(request: Request) {
   const formData = await request.formData();
   const validatedFields = LoginFormSchema.safeParse({
-    email: formData.get("email"),
+    login: formData.get("login"),
     password: formData.get("password"),
   });
 
@@ -32,16 +32,28 @@ export async function POST(request: Request) {
     return loginRedirect(request, "invalid");
   }
 
-  const { email, password } = validatedFields.data;
-  const user = findUserByEmail(email);
+  const { login, password } = validatedFields.data;
+  let dbUser;
+  try {
+    dbUser = await verifyUserPassword(login, password);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.includes("DATABASE_URL")
+    ) {
+      return loginRedirect(request, "config");
+    }
+    throw error;
+  }
 
-  if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+  if (!dbUser) {
     return loginRedirect(request, "invalid");
   }
 
+  const user = toSessionUser(dbUser);
   let sessionToken;
   try {
-    sessionToken = await createSessionToken(toSessionUser(user));
+    sessionToken = await createSessionToken(user);
   } catch (error) {
     if (
       error instanceof Error &&
@@ -53,7 +65,7 @@ export async function POST(request: Request) {
   }
 
   const response = NextResponse.redirect(
-    new URL("/dashboard", request.url),
+    new URL(homePath(user.role), request.url),
     303,
   );
   response.cookies.set(

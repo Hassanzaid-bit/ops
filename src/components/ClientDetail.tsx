@@ -7,27 +7,43 @@ import { listClientActions } from "@/lib/client-actions";
 import { getClient, type Client } from "@/lib/clients-store";
 import { listSites, newId, saveSite } from "@/lib/ops-store";
 import { listRecords } from "@/lib/records-store";
+import { checklistItemCount } from "@/lib/site-checklist";
+import { createKfcChecklist } from "@/lib/kfc-checklist-template";
 import type { Site } from "@/lib/types";
+import type { ClientAction } from "@/lib/client-actions";
+import type { VisitRecord } from "@/lib/visit-record";
 
 export function ClientDetail({ clientId }: { clientId: string }) {
   const router = useRouter();
-  const [client, setClient] = useState<Client | null>(null);
+  const [client, setClient] = useState<Client | null | undefined>(undefined);
   const [branches, setBranches] = useState<Site[]>([]);
-  const [error, setError] = useState("");
-  const [newBranch, setNewBranch] = useState("");
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [actions, setActions] = useState<ClientAction[]>([]);
+  const [records, setRecords] = useState<VisitRecord[]>([]);
+  const [addingBranch, setAddingBranch] = useState(false);
 
   const refresh = useCallback(() => {
-    const c = getClient(clientId);
-    setClient(c ?? null);
-    if (!c) {
-      setBranches([]);
-      return;
-    }
-    const sites = listSites()
-      .filter((s) => s.clientName === c.name)
-      .sort((a, b) => a.siteName.localeCompare(b.siteName));
-    setBranches(sites);
+    void (async () => {
+      const c = await getClient(clientId);
+      setClient(c ?? null);
+      if (!c) {
+        setBranches([]);
+        setActions([]);
+        setRecords([]);
+        return;
+      }
+      const [sites, nextActions, nextRecords] = await Promise.all([
+        listSites(),
+        listClientActions(),
+        listRecords(),
+      ]);
+      setBranches(
+        sites
+          .filter((s) => s.clientName === c.name)
+          .sort((a, b) => a.siteName.localeCompare(b.siteName)),
+      );
+      setActions(nextActions);
+      setRecords(nextRecords);
+    })();
   }, [clientId]);
 
   useEffect(() => {
@@ -36,64 +52,40 @@ export function ClientDetail({ clientId }: { clientId: string }) {
 
   const openActions = useMemo(() => {
     if (!client) return 0;
-    return listClientActions().filter(
+    return actions.filter(
       (a) =>
         a.clientName === client.name &&
         (a.status === "open" || a.status === "in_progress"),
     ).length;
-  }, [client, branches]);
+  }, [client, actions]);
 
   const lastVisit = useMemo(() => {
     if (!client) return null;
     return (
-      listRecords()
+      records
         .filter((r) => r.clientName === client.name)
         .map((r) => r.date)
         .sort((a, b) => b.localeCompare(a))[0] ?? null
     );
-  }, [client, branches]);
+  }, [client, records]);
 
   const branchLastVisit = useMemo(() => {
     if (!client) return new Map<string, string>();
     const map = new Map<string, string>();
-    for (const r of listRecords()) {
+    for (const r of records) {
       if (r.clientName !== client.name) continue;
       const prev = map.get(r.siteId);
       if (!prev || r.date > prev) map.set(r.siteId, r.date);
     }
     return map;
-  }, [client, branches]);
+  }, [client, records]);
 
-  const selectedBranch =
-    branches.find((b) => b.id === expandedId) ?? null;
-
-  function addBranch(e: React.FormEvent) {
-    e.preventDefault();
-    if (!client) return;
-    const siteName = newBranch.trim();
-    if (!siteName) return;
-    if (
-      branches.some((b) => b.siteName.toLowerCase() === siteName.toLowerCase())
-    ) {
-      setError("That branch already exists for this client.");
-      return;
-    }
-    const site: Site = {
-      id: newId("site"),
-      clientName: client.name,
-      siteName,
-      areas: [],
-    };
-    saveSite(site);
-    setNewBranch("");
-    setError("");
-    refresh();
-    setExpandedId(site.id);
-  }
-
-  function updateBranch(site: Site) {
-    saveSite(site);
-    refresh();
+  if (client === undefined) {
+    return (
+      <div className="mx-auto max-w-6xl px-4 py-10 text-[var(--ink-muted)]">
+        Loading client…
+      </div>
+    );
   }
 
   if (!client) {
@@ -122,9 +114,11 @@ export function ClientDetail({ clientId }: { clientId: string }) {
         <h1 className="mt-3 text-3xl font-semibold tracking-tight text-[var(--ink)]">
           {client.name}
         </h1>
-        <p className="mt-2 max-w-xl text-base text-[var(--ink-muted)]">
-          Branches and per-branch checklists.
-        </p>
+        {client.notes && (
+          <p className="mt-2 max-w-xl text-base text-[var(--ink-muted)]">
+            {client.notes}
+          </p>
+        )}
       </div>
 
       <div className="mb-8 grid gap-3 sm:grid-cols-3">
@@ -134,38 +128,29 @@ export function ClientDetail({ clientId }: { clientId: string }) {
       </div>
 
       <section className="space-y-4">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <h2 className="text-lg font-semibold text-[var(--ink)]">
-            Branches & checklists
-          </h2>
-        </div>
-
-        <form onSubmit={addBranch} className="flex flex-wrap gap-2">
-          <input
-            value={newBranch}
-            onChange={(e) => setNewBranch(e.target.value)}
-            placeholder="Add branch (e.g. Kakamega)"
-            className={`${inputClass} min-w-[12rem] flex-1`}
-          />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold text-[var(--ink)]">Branches</h2>
           <button
-            type="submit"
-            className="min-h-11 rounded-lg bg-[var(--ink)] px-4 text-sm font-semibold text-[var(--bg)]"
+            type="button"
+            onClick={() => setAddingBranch(true)}
+            className="inline-flex min-h-11 shrink-0 items-center rounded-lg bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--accent-ink)]"
           >
             + Add branch
           </button>
-        </form>
-        {error && (
-          <p className="text-sm font-medium text-red-800" role="alert">
-            {error}
-          </p>
-        )}
+        </div>
 
         <div className="overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--surface)]">
-          <table className="w-full min-w-[560px] text-left text-sm">
+          <table className="w-full min-w-[720px] text-left text-sm">
             <thead>
               <tr className="border-b border-[var(--line)] bg-[var(--bg)]">
                 {(
-                  ["Branch", "Checklist areas", "Last visit", "Action"] as const
+                  [
+                    "Branch",
+                    "Address",
+                    "Checklist",
+                    "Last visit",
+                    "Actions",
+                  ] as const
                 ).map((label) => (
                   <th
                     key={label}
@@ -183,32 +168,50 @@ export function ClientDetail({ clientId }: { clientId: string }) {
                   className="border-b border-[var(--line)] last:border-0 hover:bg-[var(--bg)]/70"
                 >
                   <td className="px-3 py-2.5 font-medium text-[var(--ink)]">
-                    {branch.siteName}
+                    <Link
+                      href={`/clients/${clientId}/branches/${branch.id}`}
+                      className="hover:text-[var(--accent)]"
+                    >
+                      {branch.siteName}
+                    </Link>
+                  </td>
+                  <td
+                    className="max-w-[200px] truncate px-3 py-2.5 text-[var(--ink-muted)]"
+                    title={branch.address || undefined}
+                  >
+                    {branch.address || "—"}
                   </td>
                   <td className="px-3 py-2.5 text-[var(--ink)]">
-                    {branch.areas.length}
+                    {checklistItemCount(branch.checklistAreas)}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-[var(--ink-muted)]">
                     {branchLastVisit.get(branch.id) ?? "—"}
                   </td>
                   <td className="px-3 py-2.5">
-                    <button
-                      type="button"
-                      onClick={() => setExpandedId(branch.id)}
-                      className="min-h-9 rounded-md border border-[var(--line)] px-2.5 text-xs font-semibold text-[var(--accent)]"
+                    <Link
+                      href={`/clients/${clientId}/branches/${branch.id}`}
+                      className="inline-flex min-h-9 items-center rounded-md border border-[var(--line)] px-2.5 text-xs font-semibold text-[var(--accent)]"
                     >
-                      View checklist
-                    </button>
+                      Manage
+                    </Link>
                   </td>
                 </tr>
               ))}
               {branches.length === 0 && (
                 <tr>
                   <td
-                    colSpan={4}
+                    colSpan={5}
                     className="px-3 py-10 text-center text-[var(--ink-muted)]"
                   >
-                    No branches yet. Add a branch to start its checklist.
+                    No branches yet.{" "}
+                    <button
+                      type="button"
+                      onClick={() => setAddingBranch(true)}
+                      className="font-semibold text-[var(--accent-deep)]"
+                    >
+                      Add a branch
+                    </button>{" "}
+                    to build its checklist.
                   </td>
                 </tr>
               )}
@@ -217,78 +220,82 @@ export function ClientDetail({ clientId }: { clientId: string }) {
         </div>
       </section>
 
-      {selectedBranch && (
-        <BranchChecklistModal
-          key={selectedBranch.id}
-          site={selectedBranch}
-          onChange={updateBranch}
-          onClose={() => setExpandedId(null)}
+      {addingBranch && (
+        <AddBranchModal
+          clientName={client.name}
+          existingNames={branches.map((b) => b.siteName)}
+          onCancel={() => setAddingBranch(false)}
+          onSaved={(siteId) => {
+            setAddingBranch(false);
+            refresh();
+            router.push(`/clients/${clientId}/branches/${siteId}`);
+          }}
         />
       )}
-
-      <div className="mt-10">
-        <button
-          type="button"
-          onClick={() => router.push("/clients")}
-          className="min-h-11 rounded-lg border border-[var(--line)] px-4 text-sm font-semibold"
-        >
-          Back to directory
-        </button>
-      </div>
     </div>
   );
 }
 
-function BranchChecklistModal({
-  site,
-  onChange,
-  onClose,
+function AddBranchModal({
+  clientName,
+  existingNames,
+  onCancel,
+  onSaved,
 }: {
-  site: Site;
-  onChange: (site: Site) => void;
-  onClose: () => void;
+  clientName: string;
+  existingNames: string[];
+  onCancel: () => void;
+  onSaved: (siteId: string) => void;
 }) {
   const titleId = useId();
-  const [newArea, setNewArea] = useState("");
-  const [toast, setToast] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [address, setAddress] = useState("");
+  const [useKfcTemplate, setUseKfcTemplate] = useState(
+    () => /^kfc\b/i.test(clientName.trim()),
+  );
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCancel();
     }
     document.addEventListener("keydown", onKey);
     return () => {
       document.body.style.overflow = prev;
       document.removeEventListener("keydown", onKey);
     };
-  }, [onClose]);
+  }, [onCancel]);
 
-  useEffect(() => {
-    if (!toast) return;
-    const t = window.setTimeout(() => setToast(null), 2500);
-    return () => window.clearTimeout(t);
-  }, [toast]);
-
-  function addArea(e: React.FormEvent) {
+  function submit(e: React.FormEvent) {
     e.preventDefault();
-    const area = newArea.trim();
-    if (!area) return;
-    if (site.areas.some((a) => a.toLowerCase() === area.toLowerCase())) {
-      setNewArea("");
+    setError("");
+    const siteName = name.trim();
+    if (!siteName) return;
+    if (
+      existingNames.some(
+        (existing) => existing.toLowerCase() === siteName.toLowerCase(),
+      )
+    ) {
+      setError("That branch already exists for this client.");
       return;
     }
-    onChange({ ...site, areas: [...site.areas, area] });
-    setNewArea("");
-    setToast(`Added “${area}” to checklist`);
-  }
-
-  function removeArea(area: string) {
-    onChange({
-      ...site,
-      areas: site.areas.filter((a) => a !== area),
-    });
+    setSubmitting(true);
+    const site: Site = {
+      id: newId("site"),
+      clientName,
+      siteName,
+      address: address.trim(),
+      checklistAreas: useKfcTemplate ? createKfcChecklist() : [],
+    };
+    void saveSite(site)
+      .then((saved) => onSaved(saved.id))
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Could not save branch.");
+        setSubmitting(false);
+      });
   }
 
   return (
@@ -300,89 +307,96 @@ function BranchChecklistModal({
         type="button"
         aria-label="Close"
         className="absolute inset-0 bg-[var(--ink)]/45"
-        onClick={onClose}
+        onClick={onCancel}
       />
-      <div
+      <form
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="relative z-10 flex max-h-[min(90vh,720px)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]"
+        onSubmit={submit}
+        className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]"
       >
         <div className="flex items-start justify-between gap-3 border-b border-[var(--line)] px-4 py-3">
           <div className="min-w-0">
-            <h2
-              id={titleId}
-              className="text-lg font-semibold text-[var(--ink)]"
-            >
-              {site.siteName}
+            <h2 id={titleId} className="text-lg font-semibold text-[var(--ink)]">
+              Add branch
             </h2>
-            <p className="text-sm text-[var(--ink-muted)]">
-              Branch checklist · {site.areas.length} area
-              {site.areas.length === 1 ? "" : "s"}
-            </p>
+            <p className="text-sm text-[var(--ink-muted)]">{clientName}</p>
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={onCancel}
             className="min-h-9 shrink-0 rounded-lg px-2 text-sm font-semibold text-[var(--ink-muted)]"
           >
             Close
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
-          <div className="space-y-2">
-            <p className="text-sm font-semibold text-[var(--ink)]">
-              Checklist ({site.areas.length})
-            </p>
-            <form onSubmit={addArea} className="flex gap-2">
-              <input
-                value={newArea}
-                onChange={(e) => setNewArea(e.target.value)}
-                placeholder="Add area (e.g. Grease Trap)"
-                className={`${inputClass} flex-1`}
-              />
-              <button
-                type="submit"
-                className="min-h-11 rounded-lg bg-[var(--ink)] px-4 text-sm font-semibold text-[var(--bg)]"
-              >
-                Add
-              </button>
-            </form>
-            <ul className="max-h-72 space-y-1 overflow-auto rounded-lg border border-[var(--line)] p-2">
-              {site.areas.map((area) => (
-                <li
-                  key={area}
-                  className="flex items-center justify-between gap-2 rounded-md px-2 py-2 text-sm hover:bg-[var(--bg)]"
-                >
-                  <span className="text-[var(--ink)]">{area}</span>
-                  <button
-                    type="button"
-                    onClick={() => removeArea(area)}
-                    className="text-sm font-semibold text-[var(--ink-muted)]"
-                  >
-                    Remove
-                  </button>
-                </li>
-              ))}
-              {site.areas.length === 0 && (
-                <li className="px-2 py-4 text-center text-sm text-[var(--ink-muted)]">
-                  No areas yet — add checklist areas for this branch.
-                </li>
-              )}
-            </ul>
-          </div>
-        </div>
-      </div>
+        <div className="space-y-3 px-4 py-4">
+          <label className="block space-y-1">
+            <span className={labelClass}>Branch name</span>
+            <input
+              autoFocus
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Kakamega"
+              className={inputClass}
+            />
+          </label>
 
-      {toast && (
-        <div
-          role="status"
-          className="pointer-events-none fixed top-4 right-4 z-[60] max-w-sm rounded-lg border border-[var(--ok)] bg-[var(--ok-soft)] px-4 py-3 text-sm font-semibold text-[var(--ok)] shadow-[var(--shadow)]"
-        >
-          {toast}
+          <label className="block space-y-1">
+            <span className={labelClass}>Address (optional)</span>
+            <input
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="Branch address"
+              className={inputClass}
+            />
+          </label>
+
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[var(--line)] px-3 py-3">
+            <input
+              type="checkbox"
+              checked={useKfcTemplate}
+              onChange={(e) => setUseKfcTemplate(e.target.checked)}
+              className="mt-1 h-4 w-4 shrink-0 accent-[var(--accent)]"
+            />
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-[var(--ink)]">
+                Start with KFC IPM checklist
+              </span>
+              <span className="mt-0.5 block text-xs text-[var(--ink-muted)]">
+                Front of house, back of house, external &amp; structure, and
+                monitoring devices — editable after creation.
+              </span>
+            </span>
+          </label>
+
+          {error && (
+            <p className="text-sm font-medium text-red-800" role="alert">
+              {error}
+            </p>
+          )}
         </div>
-      )}
+
+        <div className="flex justify-end gap-2 border-t border-[var(--line)] px-4 py-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="min-h-11 rounded-lg border border-[var(--line)] px-4 text-sm font-semibold"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={submitting}
+            className="min-h-11 rounded-lg bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--accent-ink)] disabled:opacity-50"
+          >
+            {submitting ? "Adding…" : "Add branch"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
@@ -397,6 +411,9 @@ function Stat({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
+
+const labelClass =
+  "text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]";
 
 const inputClass =
   "min-h-11 w-full rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 text-base outline-none focus:border-[var(--accent)]";

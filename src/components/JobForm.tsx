@@ -15,7 +15,11 @@ import {
   listParentVisitOptions,
   type ParentVisitOption,
 } from "@/lib/parent-visits";
-import type { ScheduledVisit, VisitType } from "@/lib/types";
+import {
+  checklistItemCount,
+  flattenChecklistLabels,
+} from "@/lib/site-checklist";
+import type { AssignmentMode, ScheduledVisit, Site, VisitType } from "@/lib/types";
 import { VISIT_TYPE_LABELS } from "@/lib/vocabulary";
 
 export function JobForm({ visitId }: { visitId?: string }) {
@@ -25,11 +29,16 @@ export function JobForm({ visitId }: { visitId?: string }) {
 
   const [hydrated, setHydrated] = useState(false);
   const [existing, setExisting] = useState<ScheduledVisit | null>(null);
-  const [sites, setSites] = useState<ReturnType<typeof listSites>>([]);
+  const [sites, setSites] = useState<Site[]>([]);
+  const [parentOptions, setParentOptions] = useState<ParentVisitOption[]>([]);
   const [date, setDate] = useState(todayISO());
   const [siteId, setSiteId] = useState("");
   const [visitType, setVisitType] = useState<VisitType>("full_inspection");
+  const [assignmentMode, setAssignmentMode] = useState<AssignmentMode>("solo");
+  const [technicianId, setTechnicianId] = useState("");
   const [technicianName, setTechnicianName] = useState("");
+  const [teamMemberIds, setTeamMemberIds] = useState<string[]>([]);
+  const [pmps, setPmps] = useState<{ id: string; name: string }[]>([]);
   const [notes, setNotes] = useState("");
   const [followUpAreas, setFollowUpAreas] = useState<string[]>([]);
   const [parentVisitId, setParentVisitId] = useState("");
@@ -38,31 +47,70 @@ export function JobForm({ visitId }: { visitId?: string }) {
   const [missing, setMissing] = useState(false);
 
   useEffect(() => {
-    const allSites = listSites();
-    setSites(allSites);
+    void (async () => {
+      const allSites = await listSites();
+      setSites(allSites);
 
-    if (visitId) {
-      const visit = getVisit(visitId);
-      if (!visit) {
-        setMissing(true);
-        setHydrated(true);
-        return;
+      const pmpRes = await fetch("/api/users?role=technician");
+      let pmpList: { id: string; name: string }[] = [];
+      if (pmpRes.ok) {
+        pmpList = (await pmpRes.json()) as { id: string; name: string }[];
+        setPmps(pmpList);
       }
-      setExisting(visit);
-      setDate(visit.date);
-      setSiteId(visit.siteId);
-      setVisitType(visit.visitType);
-      setTechnicianName(visit.technicianName);
-      setNotes(visit.notes ?? "");
-      setFollowUpAreas(visit.followUpAreas ?? []);
-      setParentVisitId(visit.parentVisitId ?? "");
-    } else {
-      const qDate = searchParams.get("date");
-      setDate(qDate || todayISO());
-      setSiteId(allSites[0]?.id ?? "");
-    }
-    setHydrated(true);
+
+      if (visitId) {
+        const visit = await getVisit(visitId);
+        if (!visit) {
+          setMissing(true);
+          setHydrated(true);
+          return;
+        }
+        setExisting(visit);
+        setDate(visit.date);
+        setSiteId(visit.siteId);
+        setVisitType(visit.visitType);
+        setTechnicianName(visit.technicianName);
+        let assignedId = visit.technicianId ?? "";
+        if (!assignedId) {
+          const match = pmpList.find(
+            (p) =>
+              p.name.trim().toLowerCase() ===
+              visit.technicianName.trim().toLowerCase(),
+          );
+          if (match) assignedId = match.id;
+        }
+        setTechnicianId(assignedId);
+        const mode = visit.assignmentMode === "team" ? "team" : "solo";
+        setAssignmentMode(mode);
+        const members =
+          visit.teamMemberIds && visit.teamMemberIds.length > 0
+            ? visit.teamMemberIds
+            : assignedId
+              ? [assignedId]
+              : [];
+        setTeamMemberIds(members);
+        setNotes(visit.notes ?? "");
+        setFollowUpAreas(visit.followUpAreas ?? []);
+        setParentVisitId(visit.parentVisitId ?? "");
+      } else {
+        const qDate = searchParams.get("date");
+        setDate(qDate || todayISO());
+        setSiteId(allSites[0]?.id ?? "");
+      }
+      setHydrated(true);
+    })();
   }, [visitId, searchParams]);
+
+  useEffect(() => {
+    if (visitType !== "follow_up") {
+      setParentOptions([]);
+      return;
+    }
+    void listParentVisitOptions({
+      siteId: siteId || undefined,
+      excludeVisitId: existing?.id,
+    }).then(setParentOptions);
+  }, [visitType, siteId, existing?.id]);
 
   useEffect(() => {
     if (!toast) return;
@@ -75,15 +123,14 @@ export function JobForm({ visitId }: { visitId?: string }) {
     [sites, siteId],
   );
 
-  const parentOptions = useMemo(() => {
-    if (visitType !== "follow_up") return [] as ParentVisitOption[];
-    return listParentVisitOptions({
-      siteId: siteId || undefined,
-      excludeVisitId: existing?.id,
-    });
-  }, [visitType, siteId, existing?.id]);
+  const checklistLabels = useMemo(
+    () => (site ? flattenChecklistLabels(site.checklistAreas) : []),
+    [site],
+  );
 
-  const selectedParent = parentOptions.find((o) => o.id === parentVisitId);
+  const parentOptionsMemo = parentOptions;
+
+  const selectedParent = parentOptionsMemo.find((o) => o.id === parentVisitId);
 
   if (!hydrated) {
     return (
@@ -109,7 +156,7 @@ export function JobForm({ visitId }: { visitId?: string }) {
 
   function onParentChange(id: string) {
     setParentVisitId(id);
-    const parent = parentOptions.find((o) => o.id === id);
+    const parent = parentOptionsMemo.find((o) => o.id === id);
     if (!parent) return;
     setSiteId(parent.siteId);
     if (parent.issueAreas.length > 0) {
@@ -124,13 +171,21 @@ export function JobForm({ visitId }: { visitId?: string }) {
       setError("Select a location / branch.");
       return;
     }
-    if (!technicianName.trim()) {
-      setError("Technician name is required.");
+    if (!technicianId) {
+      setError("Select a lead PMP.");
       return;
     }
     if (!date) {
       setError("Date is required.");
       return;
+    }
+    if (assignmentMode === "team") {
+      const crew = new Set(teamMemberIds);
+      crew.add(technicianId);
+      if (crew.size < 2) {
+        setError("Team jobs need at least one additional PMP.");
+        return;
+      }
     }
     if (visitType === "follow_up" && !parentVisitId) {
       setError("Link this follow-up to the original visit.");
@@ -141,21 +196,30 @@ export function JobForm({ visitId }: { visitId?: string }) {
       return;
     }
 
-    saveVisit({
+    const memberIds =
+      assignmentMode === "team"
+        ? Array.from(new Set([technicianId, ...teamMemberIds]))
+        : [technicianId];
+
+    void saveVisit({
       id: existing?.id ?? newId("visit"),
       siteId,
       visitType,
       technicianName: technicianName.trim(),
+      technicianId: technicianId || undefined,
+      assignmentMode,
+      teamMemberIds: memberIds,
       date,
       status: existing?.status ?? "scheduled",
       notes: notes.trim() || undefined,
       followUpAreas: visitType === "follow_up" ? followUpAreas : undefined,
       parentVisitId: visitType === "follow_up" ? parentVisitId : undefined,
+    }).then(() => {
+      setToast(isNew ? "Job created" : "Job saved");
+      window.setTimeout(() => {
+        router.push("/jobs");
+      }, 400);
     });
-    setToast(isNew ? "Job created" : "Job saved");
-    window.setTimeout(() => {
-      router.push("/jobs");
-    }, 400);
   }
 
   return (
@@ -263,7 +327,8 @@ export function JobForm({ visitId }: { visitId?: string }) {
               >
                 {sites.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.clientName} — {s.siteName} ({s.areas.length} areas)
+                    {s.clientName} — {s.siteName} (
+                    {checklistItemCount(s.checklistAreas)} areas)
                   </option>
                 ))}
               </select>
@@ -271,17 +336,17 @@ export function JobForm({ visitId }: { visitId?: string }) {
             {site && (
               <p className="rounded-md border border-[var(--line)] bg-[var(--bg)] px-2.5 py-2 text-xs text-[var(--ink-muted)]">
                 <span className="font-semibold text-[var(--ink)]">
-                  Checklist · {site.areas.length}
+                  Checklist · {checklistLabels.length}
                 </span>
-                {site.areas.length > 0
-                  ? ` — ${site.areas.slice(0, 8).join(", ")}${site.areas.length > 8 ? "…" : ""}`
+                {checklistLabels.length > 0
+                  ? ` — ${checklistLabels.slice(0, 8).join(", ")}${checklistLabels.length > 8 ? "…" : ""}`
                   : " — no areas yet"}
               </p>
             )}
-            {visitType === "follow_up" && site && site.areas.length > 0 && (
+            {visitType === "follow_up" && site && checklistLabels.length > 0 && (
               <SearchableSelect
                 label="Follow-up areas"
-                options={site.areas}
+                options={checklistLabels}
                 selected={followUpAreas}
                 onChange={setFollowUpAreas}
                 multi
@@ -291,16 +356,105 @@ export function JobForm({ visitId }: { visitId?: string }) {
           </>
         )}
 
-        <label className="block space-y-1">
-          <span className={labelClass}>Technician</span>
-          <input
-            required
-            value={technicianName}
-            onChange={(e) => setTechnicianName(e.target.value)}
-            className={inputClass}
-            placeholder="Technician name"
-          />
-        </label>
+        <div className="grid gap-2.5 sm:grid-cols-2">
+          <label className="block space-y-1">
+            <span className={labelClass}>Assignment</span>
+            <select
+              value={assignmentMode}
+              onChange={(e) => {
+                const mode = e.target.value as AssignmentMode;
+                setAssignmentMode(mode);
+                if (mode === "solo") {
+                  setTeamMemberIds(technicianId ? [technicianId] : []);
+                } else if (technicianId) {
+                  setTeamMemberIds((prev) =>
+                    prev.includes(technicianId) ? prev : [technicianId, ...prev],
+                  );
+                }
+              }}
+              className={inputClass}
+            >
+              <option value="solo">Solo PMP</option>
+              <option value="team">Team</option>
+            </select>
+          </label>
+          <label className="block space-y-1">
+            <span className={labelClass}>
+              {assignmentMode === "team" ? "Lead PMP" : "PMP"}
+            </span>
+            <select
+              required
+              value={technicianId}
+              onChange={(e) => {
+                const id = e.target.value;
+                setTechnicianId(id);
+                const pmp = pmps.find((p) => p.id === id);
+                setTechnicianName(pmp?.name ?? "");
+                if (assignmentMode === "solo") {
+                  setTeamMemberIds(id ? [id] : []);
+                } else if (id) {
+                  setTeamMemberIds((prev) =>
+                    prev.includes(id) ? prev : [id, ...prev],
+                  );
+                }
+              }}
+              className={inputClass}
+            >
+              <option value="">Select PMP…</option>
+              {pmps.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            {pmps.length === 0 && (
+              <p className="text-xs text-[var(--ink-muted)]">
+                No active PMPs yet. Add users under Admin → Users first.
+              </p>
+            )}
+          </label>
+        </div>
+
+        {assignmentMode === "team" && (
+          <fieldset className="space-y-2 rounded-lg border border-[var(--line)] bg-[var(--bg)] p-3">
+            <legend className={`${labelClass} px-1`}>Team members</legend>
+            <p className="text-xs text-[var(--ink-muted)]">
+              Lead is included automatically. Select at least one more PMP.
+            </p>
+            <div className="grid gap-1.5 sm:grid-cols-2">
+              {pmps.map((p) => {
+                const checked = teamMemberIds.includes(p.id);
+                const isLead = p.id === technicianId;
+                return (
+                  <label
+                    key={p.id}
+                    className="flex min-h-10 items-center gap-2 rounded-md border border-[var(--line)] bg-[var(--surface)] px-2.5 text-sm"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked || isLead}
+                      disabled={isLead}
+                      onChange={(e) => {
+                        if (isLead) return;
+                        setTeamMemberIds((prev) => {
+                          const next = new Set(prev);
+                          if (technicianId) next.add(technicianId);
+                          if (e.target.checked) next.add(p.id);
+                          else next.delete(p.id);
+                          return Array.from(next);
+                        });
+                      }}
+                    />
+                    <span>
+                      {p.name}
+                      {isLead ? " (lead)" : ""}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+        )}
 
         <label className="block space-y-1">
           <span className={labelClass}>Job notes</span>
@@ -322,7 +476,7 @@ export function JobForm({ visitId }: { visitId?: string }) {
         <div className="flex flex-wrap gap-2 pt-1">
           <button
             type="submit"
-            disabled={sites.length === 0}
+            disabled={sites.length === 0 || pmps.length === 0}
             className="min-h-10 rounded-lg bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--accent-ink)] disabled:opacity-40"
           >
             {isNew ? "Create job" : "Save job"}

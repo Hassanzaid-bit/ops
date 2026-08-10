@@ -159,13 +159,18 @@ export function generateReport(
   site: Site,
   areas: AreaInspection[],
 ): string {
+  const crewNote =
+    visit.assignmentMode === "team" && (visit.teamMemberIds?.length ?? 0) > 1
+      ? `Assignment: Team (lead ${visit.technicianName}, ${visit.teamMemberIds!.length} PMPs)`
+      : `Technician: ${visit.technicianName}`;
+
   const header = [
     "INTEGRATED PEST MANAGEMENT (IPM) SERVICE REPORT",
     "",
     `Client: ${site.clientName}`,
     `Site: ${site.siteName}`,
     `Visit type: ${VISIT_TYPE_LABELS[visit.visitType]}`,
-    `Technician: ${visit.technicianName}`,
+    crewNote,
     `Date: ${visit.date}`,
     "",
   ].join("\n");
@@ -194,7 +199,8 @@ export function generateReportFromRecord(record: VisitRecord): string {
       id: record.siteId,
       clientName: record.clientName,
       siteName: record.siteName,
-      areas: record.areas.map((a) => a.area),
+      address: "",
+      checklistAreas: [],
     },
     record.areas,
   );

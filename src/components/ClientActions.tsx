@@ -18,7 +18,7 @@ export function ClientActions({ embedded = false }: { embedded?: boolean }) {
   const [modalId, setModalId] = useState<string | null>(null);
 
   useEffect(() => {
-    setActions(listClientActions());
+    void listClientActions().then(setActions);
   }, []);
 
   const filtered = useMemo(() => {
@@ -42,7 +42,7 @@ export function ClientActions({ embedded = false }: { embedded?: boolean }) {
   const selected = actions.find((a) => a.id === modalId) ?? null;
 
   function refresh() {
-    setActions(listClientActions());
+    void listClientActions().then(setActions);
   }
 
   return (
@@ -50,11 +50,10 @@ export function ClientActions({ embedded = false }: { embedded?: boolean }) {
       {!embedded && (
         <header className="mb-6">
           <h1 className="text-3xl font-semibold tracking-tight text-[var(--ink)]">
-            Clients
+            Action queue
           </h1>
           <p className="mt-2 max-w-xl text-base text-[var(--ink-muted)]">
-            Action queue from visits flagged “Client action needed” — track
-            follow-through until done.
+            Follow-through on visit flags marked “Client action needed”.
           </p>
         </header>
       )}

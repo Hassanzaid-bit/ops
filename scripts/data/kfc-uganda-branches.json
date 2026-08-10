@@ -1,0 +1,114 @@
+{
+  "client": "KFC UGANDA",
+  "country": "Uganda",
+  "branches": [
+    {
+      "name": "KFC Acacia",
+      "address": "KFC Acacia, kampala"
+    },
+    {
+      "name": "KFC Akamwesi",
+      "address": "Uganda"
+    },
+    {
+      "name": "KFC Banda",
+      "address": "KFC | Banda, kampala"
+    },
+    {
+      "name": "KFC Boulevard",
+      "address": "KFC Kampala Boulevard, kampala"
+    },
+    {
+      "name": "KFC Bugolobi",
+      "address": "KFC | Bugolobi, kampala"
+    },
+    {
+      "name": "KFC Bulenga",
+      "address": ""
+    },
+    {
+      "name": "KFC Kabalagala",
+      "address": "KFC Shell Gaba (Kabalagala), kampala"
+    },
+    {
+      "name": "KFC Kira Road",
+      "address": "KFC, kampala"
+    },
+    {
+      "name": "KFC Kitende",
+      "address": "KFC Kitende, entebbe"
+    },
+    {
+      "name": "KFC Kitetika",
+      "address": "Kampala"
+    },
+    {
+      "name": "KFC Kiwatule",
+      "address": "Kampala, Kampala"
+    },
+    {
+      "name": "KFC Kyanja",
+      "address": "KFC Kyanja, kampala"
+    },
+    {
+      "name": "KFC Kyengera",
+      "address": "KFC Shell Kyengera, kampala"
+    },
+    {
+      "name": "KFC Lubowa",
+      "address": ""
+    },
+    {
+      "name": "KFC Lugogo",
+      "address": "KFC Forest Mall, kampala"
+    },
+    {
+      "name": "KFC Makindye",
+      "address": "KFC Shell Makindye, kampala"
+    },
+    {
+      "name": "KFC Mawanda",
+      "address": ""
+    },
+    {
+      "name": "KFC Mukono",
+      "address": ""
+    },
+    {
+      "name": "KFC Munyonyo",
+      "address": ""
+    },
+    {
+      "name": "KFC Naguru",
+      "address": "Naguru Township, Kampala"
+    },
+    {
+      "name": "KFC Namugongo",
+      "address": ""
+    },
+    {
+      "name": "KFC Nansana",
+      "address": ""
+    },
+    {
+      "name": "KFC Oasis Mall",
+      "address": "KFC | Oasis Mall, kampala"
+    },
+    {
+      "name": "KFC Rubaga",
+      "address": "KFC, kampala"
+    },
+    {
+      "name": "KFC Tula",
+      "address": "KFC Tula"
+    },
+    {
+      "name": "KFC Victoria Mall",
+      "address": "Kfc Victoria Mall, kampala"
+    },
+    {
+      "name": "KFC Wandegeya",
+      "address": "KFC Shell Wandegeya, kampala"
+    }
+  ]
+}

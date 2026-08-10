@@ -1,9 +1,12 @@
 import type { ScheduledVisit, Site } from "./types";
 import { DEFAULT_IPM_AREAS } from "./real-checklist";
+import { flatNamesToChecklistAreas, flattenChecklistLabels } from "./site-checklist";
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
+
+const DEFAULT_CHECKLIST = flatNamesToChecklistAreas([...DEFAULT_IPM_AREAS]);
 
 /** Default seed when ops store is empty — live KFC Kakamega checklist */
 export const SITES: Site[] = [
@@ -11,13 +14,15 @@ export const SITES: Site[] = [
     id: "site-01",
     clientName: "KFC",
     siteName: "Kakamega",
-    areas: [...DEFAULT_IPM_AREAS],
+    address: "",
+    checklistAreas: DEFAULT_CHECKLIST,
   },
   {
     id: "site-02",
     clientName: "KFC",
     siteName: "Westside Mall",
-    areas: [...DEFAULT_IPM_AREAS],
+    address: "",
+    checklistAreas: DEFAULT_CHECKLIST,
   },
 ];
 
@@ -71,8 +76,9 @@ export function getVisit(visitId: string): ScheduledVisit | undefined {
 export function getAvailableAreas(visit: ScheduledVisit): string[] {
   const site = getSite(visit.siteId);
   if (!site) return [];
+  const labels = flattenChecklistLabels(site.checklistAreas);
   if (visit.visitType === "follow_up" && visit.followUpAreas?.length) {
-    return visit.followUpAreas.filter((a) => site.areas.includes(a));
+    return visit.followUpAreas.filter((a) => labels.includes(a));
   }
-  return site.areas;
+  return labels;
 }

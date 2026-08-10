@@ -29,7 +29,7 @@ export function TreatmentReports() {
   const product = searchParams.get("product") ?? "";
 
   useEffect(() => {
-    setRecords(listRecords());
+    void listRecords().then(setRecords);
   }, []);
 
   useEffect(() => {

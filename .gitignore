@@ -37,6 +37,17 @@ yarn-error.log*
 # vercel
 .vercel
 
-# typescript
-*.tsbuildinfo
-next-env.d.ts
+# PWA service worker (generated at build)
+public/sw.js
+public/sw.js.map
+public/workbox-*.js
+public/swe-worker-*.js
+
+# python / api
+api/.venv/
+api/**/__pycache__/
+api/**/*.py[cod]
+api/.pytest_cache/
+api/.ruff_cache/
+api/dist/
+api/*.egg-info/

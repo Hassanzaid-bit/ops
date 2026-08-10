@@ -20,20 +20,31 @@ import {
 export type VisitType = "full_inspection" | "follow_up";
 export type VisitStatus = "scheduled" | "in_progress" | "submitted";
 export type AreaStatus = "clean" | "issues";
+export type AssignmentMode = "solo" | "team";
+
+import type { ChecklistArea } from "./site-checklist";
 
 export type Site = {
   id: string;
   clientName: string;
   siteName: string;
-  /** Site-specific checklist — not a global catalog */
-  areas: string[];
+  address: string;
+  /** Checklist area → sub-area tree; leaves drive visit capture */
+  checklistAreas: ChecklistArea[];
 };
 
 export type ScheduledVisit = {
   id: string;
   siteId: string;
   visitType: VisitType;
+  /** Lead technician display name (Insectram-style primary tech) */
   technicianName: string;
+  /** Lead PMP user id */
+  technicianId?: string;
+  /** solo (default) or team crew */
+  assignmentMode?: AssignmentMode;
+  /** Crew user ids; always includes lead when set. Empty/undefined = solo. */
+  teamMemberIds?: string[];
   date: string;
   followUpAreas?: string[];
   status: VisitStatus;
@@ -56,6 +67,14 @@ export type DeviceService = {
   enabled: boolean;
   count: string;
   actions: string[];
+};
+
+/** Compressed evidence photo stored on the area (data URL for offline drafts) */
+export type AreaPhoto = {
+  id: string;
+  name: string;
+  dataUrl: string;
+  addedAt: string;
 };
 
 /** Nested IPM inspection point (schema v2) */
@@ -94,6 +113,9 @@ export type AreaInspection = {
   /** Editable auto-suggested recommendation */
   recommendation: string;
   notes: string;
+  /** Evidence photos for this area (multiple allowed) */
+  photos: AreaPhoto[];
+  /** Derived from photos.length — kept for reports / dashboards */
   photoCount: number;
   /**
    * Derived roll-ups for dashboard / reports compat
@@ -159,6 +181,7 @@ export function emptyAreaInspection(area = ""): AreaInspection {
     deviceService: { enabled: false, count: "", actions: [] },
     recommendation: "",
     notes: "",
+    photos: [],
     photoCount: 0,
     status: null,
     findings: [],
@@ -385,9 +408,12 @@ export function syncAreaDerivedFields(area: AreaInspection): AreaInspection {
   }
 
   const advice = recommendation ? [recommendation] : [];
+  const photos = Array.isArray(area.photos) ? area.photos : [];
 
   return {
     ...area,
+    photos,
+    photoCount: photos.length,
     treatmentApplied,
     recommendation,
     status: roll.status,
@@ -510,6 +536,14 @@ export function normalizeAreaInspection(
       ? "preventive"
       : "none");
 
+  const photos = normalizeAreaPhotos(r.photos);
+  const photoCount =
+    photos.length > 0
+      ? photos.length
+      : typeof r.photoCount === "number"
+        ? r.photoCount
+        : 0;
+
   return syncAreaDerivedFields({
     area,
     points,
@@ -527,7 +561,8 @@ export function normalizeAreaInspection(
         : typeof (r.observations as { notes?: string })?.notes === "string"
           ? (r.observations as { notes: string }).notes
           : "",
-    photoCount: typeof r.photoCount === "number" ? r.photoCount : 0,
+    photos,
+    photoCount,
     status: null,
     findings: [],
     pestTypes: [],
@@ -535,9 +570,63 @@ export function normalizeAreaInspection(
   });
 }
 
+function normalizeAreaPhotos(raw: unknown): AreaPhoto[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item, index) => {
+      if (!item || typeof item !== "object") return null;
+      const p = item as Record<string, unknown>;
+      const dataUrl = typeof p.dataUrl === "string" ? p.dataUrl : "";
+      if (!dataUrl.startsWith("data:image/")) return null;
+      return {
+        id:
+          typeof p.id === "string" && p.id
+            ? p.id
+            : `photo-${index}-${Date.now()}`,
+        name: typeof p.name === "string" ? p.name : `Photo ${index + 1}`,
+        dataUrl,
+        addedAt:
+          typeof p.addedAt === "string"
+            ? p.addedAt
+            : new Date().toISOString(),
+      } satisfies AreaPhoto;
+    })
+    .filter((p): p is AreaPhoto => Boolean(p));
+}
+
 export function isDeviceArea(area: string): boolean {
   const a = area.toLowerCase();
   return /fly control|fcu|bait|monitoring|rodent|manhole|drain/.test(a);
+}
+
+export function isRedDotArea(area: string): boolean {
+  return /red\s*dot/i.test(area);
+}
+
+/** Normalize solo/team fields before save or display */
+export function normalizeJobAssignment(visit: ScheduledVisit): ScheduledVisit {
+  const mode: AssignmentMode = visit.assignmentMode === "team" ? "team" : "solo";
+  const leadId = visit.technicianId?.trim() || undefined;
+  let memberIds = [...(visit.teamMemberIds ?? [])].filter(Boolean);
+
+  if (mode === "solo") {
+    memberIds = leadId ? [leadId] : [];
+  } else if (leadId && !memberIds.includes(leadId)) {
+    memberIds = [leadId, ...memberIds];
+  }
+
+  return {
+    ...visit,
+    assignmentMode: mode,
+    technicianId: leadId,
+    teamMemberIds: memberIds,
+  };
+}
+
+export function jobCoveragePercent(areas: AreaInspection[]): number {
+  if (!areas.length) return 0;
+  const done = areas.filter(isAreaComplete).length;
+  return Math.round((done / areas.length) * 100);
 }
 
 export function isPointComplete(p: InspectionPoint): boolean {
