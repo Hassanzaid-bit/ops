@@ -7,9 +7,17 @@ type Props = {
   areas: { name: string; done: boolean }[];
   onClose: () => void;
   onSelect: (area: string) => void;
+  /** When search doesn’t match — add a new area for this visit */
+  onAddCustom?: (area: string) => void;
 };
 
-export function AreaPickerModal({ open, areas, onClose, onSelect }: Props) {
+export function AreaPickerModal({
+  open,
+  areas,
+  onClose,
+  onSelect,
+  onAddCustom,
+}: Props) {
   const titleId = useId();
   const searchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
@@ -21,6 +29,12 @@ export function AreaPickerModal({ open, areas, onClose, onSelect }: Props) {
   }, [areas, query]);
 
   const remaining = areas.filter((a) => !a.done).length;
+  const trimmed = query.trim().replace(/\s+/g, " ");
+  const exactExists = areas.some(
+    (a) => a.name.toLowerCase() === trimmed.toLowerCase(),
+  );
+  const canAddCustom =
+    Boolean(onAddCustom) && trimmed.length > 0 && !exactExists;
 
   useEffect(() => {
     if (!open) return;
@@ -69,7 +83,7 @@ export function AreaPickerModal({ open, areas, onClose, onSelect }: Props) {
                 Choose area
               </h2>
               <p className="mt-0.5 text-sm text-[var(--ink-muted)]">
-                {remaining} remaining · search or tap any area
+                {remaining} remaining · search, tap, or add a new area
               </p>
             </div>
             <button
@@ -85,15 +99,29 @@ export function AreaPickerModal({ open, areas, onClose, onSelect }: Props) {
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search areas (e.g. Grease Trap, FCU)…"
+            placeholder="Search or type a new area…"
             className="min-h-10 w-full rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 text-sm text-[var(--ink)] outline-none placeholder:text-[var(--ink-muted)] focus:border-[var(--accent)]"
           />
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {filtered.length === 0 ? (
+          {canAddCustom && (
+            <button
+              type="button"
+              onClick={() => onAddCustom?.(trimmed)}
+              className="flex min-h-11 w-full items-center justify-between gap-3 border-b border-[var(--line)] bg-[var(--bg)] px-3 py-2.5 text-left text-sm text-[var(--ink)]"
+            >
+              <span className="font-medium">
+                + Add “{trimmed}” to this visit
+              </span>
+              <span className="shrink-0 text-sm font-semibold text-[var(--accent)]">
+                Add
+              </span>
+            </button>
+          )}
+          {filtered.length === 0 && !canAddCustom ? (
             <p className="px-4 py-8 text-center text-sm text-[var(--ink-muted)]">
-              No matches for “{query.trim()}”
+              No matches for “{trimmed}”
             </p>
           ) : (
             filtered.map((a) => (

@@ -2,20 +2,26 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AreaPickerModal } from "@/components/AreaPickerModal";
+import { useRouter } from "next/navigation";
 import { AreaCaptureScreen } from "@/components/AreaCaptureScreen";
 import { getAvailableAreas, getSite } from "@/lib/ops-store";
 import { generateReport } from "@/lib/report";
 import { upsertRecord } from "@/lib/records-store";
-import { clearDraft, loadDraft, saveDraft } from "@/lib/storage";
+import { loadDraft, saveDraft } from "@/lib/storage";
 import {
   allAreasComplete,
   emptyAreaInspection,
+  emptyDeviceUnit,
+  emptyRedDotUpdate,
   isAreaComplete,
   isDeviceArea,
+  isFcuArea,
+  isMonitoringDeviceArea,
   isRedDotArea,
+  isRodentBaitArea,
   jobCoveragePercent,
   normalizeAreaInspection,
+  normalizeDeviceService,
   normalizeTreatment,
   syncAreaDerivedFields,
   type AreaInspection,
@@ -26,24 +32,39 @@ import {
 import { buildVisitRecord } from "@/lib/visit-record";
 import { VISIT_TYPE_LABELS } from "@/lib/vocabulary";
 
+/** Common areas techs add when the branch checklist is empty */
+const VISIT_STARTER_AREAS = [
+  "Red Dot Update",
+  "Fly Control Units (FCUs)",
+  "Non-Toxic Monitoring Stations",
+  "Toxic Bait Stations",
+] as const;
+
+function starterAreasAvailable(existing: string[]) {
+  const have = new Set(existing.map((a) => a.toLowerCase()));
+  return VISIT_STARTER_AREAS.filter((name) => !have.has(name.toLowerCase()));
+}
+
 type Props = { visit: ScheduledVisit };
 type Screen = "list" | "area" | "review";
 
 export function CaptureFlow({ visit }: Props) {
+  const router = useRouter();
   const [site, setSite] = useState<Site | null>(null);
-  const [checklist, setChecklist] = useState<string[]>([]);
   const [screen, setScreen] = useState<Screen>("list");
   const [activeArea, setActiveArea] = useState<string | null>(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [areaFilter, setAreaFilter] = useState("");
   const [draft, setDraft] = useState<VisitDraft>(() => ({
     visitId: visit.id,
     areas: [],
     updatedAt: new Date().toISOString(),
   }));
   const [hydrated, setHydrated] = useState(false);
-  const [copyFlash, setCopyFlash] = useState<string | null>(null);
+  const [copyFlash, setCopyFlash] = useState(false);
   const [treatmentOn, setTreatmentOn] = useState(false);
   const [offlineSite, setOfflineSite] = useState(false);
+  const [newAreaName, setNewAreaName] = useState("");
+  const [addAreaHint, setAddAreaHint] = useState<string | null>(null);
 
   const persist = useCallback((next: VisitDraft) => {
     setDraft(next);
@@ -59,7 +80,6 @@ export function CaptureFlow({ visit }: Props) {
       ]);
       setSite(loadedSite ?? null);
       setOfflineSite(!loadedSite && !navigator.onLine);
-      setChecklist(areas);
 
       if (existing?.areas?.length) {
         const byName = new Map(
@@ -71,9 +91,18 @@ export function CaptureFlow({ visit }: Props) {
         const merged = areas.map(
           (name) => byName.get(name) ?? emptyAreaInspection(name),
         );
+        // Keep areas PMPs added mid-visit that aren't on the site template
+        const extras = existing.areas
+          .filter(
+            (a) =>
+              !areas.some(
+                (name) => name.toLowerCase() === a.area.toLowerCase(),
+              ),
+          )
+          .map((a) => normalizeAreaInspection(a, a.area));
         setDraft({
           visitId: visit.id,
-          areas: merged,
+          areas: [...merged, ...extras],
           updatedAt: existing.updatedAt,
           submittedAt: existing.submittedAt,
         });
@@ -97,12 +126,17 @@ export function CaptureFlow({ visit }: Props) {
   const orderedAreas = useMemo(() => {
     const incomplete = draft.areas.filter((a) => !isAreaComplete(a));
     const complete = draft.areas.filter(isAreaComplete);
-    const rank = (a: AreaInspection) => (isRedDotArea(a.area) ? 0 : 1);
     return [
-      ...incomplete.sort((a, b) => rank(a) - rank(b) || a.area.localeCompare(b.area)),
-      ...complete.sort((a, b) => rank(a) - rank(b) || a.area.localeCompare(b.area)),
+      ...incomplete.sort((a, b) => a.area.localeCompare(b.area)),
+      ...complete.sort((a, b) => a.area.localeCompare(b.area)),
     ];
   }, [draft.areas]);
+
+  const filteredAreas = useMemo(() => {
+    const q = areaFilter.trim().toLowerCase();
+    if (!q) return orderedAreas;
+    return orderedAreas.filter((a) => a.area.toLowerCase().includes(q));
+  }, [orderedAreas, areaFilter]);
   const assignmentLabel =
     visit.assignmentMode === "team"
       ? `Team · lead ${visit.technicianName}${(visit.teamMemberIds?.length ?? 0) > 1 ? ` · ${(visit.teamMemberIds?.length ?? 1)} PMPs` : ""}`
@@ -139,6 +173,57 @@ export function CaptureFlow({ visit }: Props) {
     setScreen("area");
   }
 
+  function addCustomArea(rawName: string) {
+    const name = rawName.trim().replace(/\s+/g, " ");
+    if (!name) {
+      setAddAreaHint("Enter an area name.");
+      return;
+    }
+    const existing = draft.areas.find(
+      (a) => a.area.toLowerCase() === name.toLowerCase(),
+    );
+    if (existing) {
+      setAddAreaHint(null);
+      setNewAreaName("");
+      openArea(existing.area);
+      return;
+    }
+    let nextArea = emptyAreaInspection(name);
+    if (isRedDotArea(name)) {
+      nextArea = {
+        ...nextArea,
+        redDot: emptyRedDotUpdate(),
+      };
+    }
+    if (isRodentBaitArea(name)) {
+      nextArea = {
+        ...nextArea,
+        deviceService: normalizeDeviceService({
+          enabled: true,
+          units: [],
+        }),
+      };
+    } else if (isFcuArea(name) || isMonitoringDeviceArea(name)) {
+      nextArea = {
+        ...nextArea,
+        deviceService: normalizeDeviceService({
+          enabled: true,
+          units: isFcuArea(name) ? [] : [emptyDeviceUnit(1)],
+        }),
+      };
+    }
+    persist({
+      ...draft,
+      areas: [...draft.areas, nextArea],
+      updatedAt: new Date().toISOString(),
+    });
+    setNewAreaName("");
+    setAddAreaHint(null);
+    setTreatmentOn(false);
+    setActiveArea(name);
+    setScreen("area");
+  }
+
   function submitLocal() {
     if (!canReview || !site) return;
     const submittedAt = new Date().toISOString();
@@ -146,14 +231,28 @@ export function CaptureFlow({ visit }: Props) {
     persist(next);
     void upsertRecord(
       buildVisitRecord(visit, site, draft.areas, submittedAt),
-    ).then(({ synced }) => {
-      setCopyFlash(
-        synced
-          ? "Report saved"
-          : "Saved offline — will sync when connected",
-      );
-      setTimeout(() => setCopyFlash(null), 2500);
+    ).finally(() => {
+      router.push("/");
     });
+  }
+
+  async function copyReport() {
+    if (!report) return;
+    try {
+      await navigator.clipboard.writeText(report);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = report;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    setCopyFlash(true);
+    setTimeout(() => setCopyFlash(false), 2000);
   }
 
   const report = useMemo(
@@ -187,8 +286,8 @@ export function CaptureFlow({ visit }: Props) {
   return (
     <div
       className={[
-        "mx-auto flex min-h-full max-w-lg flex-col px-4 pb-28",
-        screen === "area" ? "pt-3" : "pt-4",
+        "mx-auto flex min-h-full max-w-lg flex-col px-4",
+        screen === "area" ? "pt-3 pb-8" : "pt-4 pb-28",
       ].join(" ")}
     >
       {screen !== "area" && (
@@ -234,25 +333,66 @@ export function CaptureFlow({ visit }: Props) {
 
       {screen === "list" && (
         <main className="space-y-3">
-          <div className="flex items-center justify-between gap-2">
+          <div className="space-y-2">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
               Areas
             </h2>
-            {totalCount >= 8 && (
-              <button
-                type="button"
-                onClick={() => setPickerOpen(true)}
-                className="text-sm font-semibold text-[var(--accent-deep)]"
-              >
-                Search
-              </button>
-            )}
+            <input
+              type="search"
+              value={areaFilter}
+              onChange={(e) => setAreaFilter(e.target.value)}
+              placeholder={
+                draft.areas.length === 0
+                  ? "Type an area to add (e.g. Lobby, FCU)…"
+                  : "Filter areas…"
+              }
+              className="min-h-11 w-full rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 text-sm text-[var(--ink)] outline-none placeholder:text-[var(--ink-muted)] focus:border-[var(--accent)]"
+            />
           </div>
 
+          {!areaFilter.trim() && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                addCustomArea(newAreaName);
+              }}
+              className="space-y-2 rounded-xl border border-dashed border-[var(--line)] bg-[var(--surface)] p-3"
+            >
+              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
+                Add area for this visit
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <input
+                  value={newAreaName}
+                  onChange={(e) => {
+                    setNewAreaName(e.target.value);
+                    if (addAreaHint) setAddAreaHint(null);
+                  }}
+                  placeholder="e.g. Receiving drain, Staff canteen…"
+                  className="min-h-11 min-w-[12rem] flex-1 rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 text-sm text-[var(--ink)] outline-none focus:border-[var(--accent)]"
+                />
+                <button
+                  type="submit"
+                  className="min-h-11 rounded-lg bg-[var(--ink)] px-4 text-sm font-semibold text-[var(--bg)]"
+                >
+                  + Add
+                </button>
+              </div>
+              {addAreaHint && (
+                <p className="text-xs font-medium text-red-800" role="alert">
+                  {addAreaHint}
+                </p>
+              )}
+              <p className="text-xs text-[var(--ink-muted)]">
+                Adds to this visit only — does not change the branch checklist
+                template.
+              </p>
+            </form>
+          )}
+
           <ul className="overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)]">
-            {orderedAreas.map((a) => {
+            {filteredAreas.map((a) => {
                 const done = isAreaComplete(a);
-                const redDot = isRedDotArea(a.area);
                 return (
                   <li
                     key={a.area}
@@ -264,7 +404,6 @@ export function CaptureFlow({ visit }: Props) {
                       className={[
                         "flex min-h-11 w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm",
                         done ? "bg-[var(--ok-soft)]/50" : "",
-                        redDot && !done ? "bg-[var(--warn-soft)]/40" : "",
                       ].join(" ")}
                     >
                       <span
@@ -274,11 +413,6 @@ export function CaptureFlow({ visit }: Props) {
                         ].join(" ")}
                       >
                         {done ? `${a.area} ✓` : a.area}
-                        {redDot ? (
-                          <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--warn)]">
-                            Start here
-                          </span>
-                        ) : null}
                       </span>
                       <span
                         className={[
@@ -294,25 +428,97 @@ export function CaptureFlow({ visit }: Props) {
                   </li>
                 );
               })}
-            {draft.areas.length === 0 && (
-              <li className="px-3 py-8 text-center text-sm text-[var(--ink-muted)]">
-                No areas on this checklist.
+            {draft.areas.length === 0 && !areaFilter.trim() && (
+              <li className="space-y-4 px-3 py-5">
+                <div className="text-center">
+                  <p className="text-sm font-medium text-[var(--ink)]">
+                    No checklist on this branch yet
+                  </p>
+                  <p className="mt-1 text-sm text-[var(--ink-muted)]">
+                    Add areas as you walk the site. Red Dot and monitoring
+                    devices open specialized capture.
+                  </p>
+                </div>
+                {starterAreasAvailable([]).length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
+                      Start with
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {starterAreasAvailable([]).map((name) => (
+                        <button
+                          key={name}
+                          type="button"
+                          onClick={() => addCustomArea(name)}
+                          className="min-h-10 rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 text-left text-xs font-semibold text-[var(--ink)]"
+                        >
+                          + {name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </li>
+            )}
+            {draft.areas.length > 0 &&
+              !areaFilter.trim() &&
+              starterAreasAvailable(draft.areas.map((a) => a.area)).length >
+                0 &&
+              draft.areas.length < 4 && (
+                <li className="border-t border-[var(--line)] px-3 py-3">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
+                    Also add
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {starterAreasAvailable(draft.areas.map((a) => a.area)).map(
+                      (name) => (
+                        <button
+                          key={name}
+                          type="button"
+                          onClick={() => addCustomArea(name)}
+                          className="min-h-9 rounded-lg border border-[var(--line)] bg-[var(--bg)] px-2.5 text-xs font-semibold text-[var(--ink)]"
+                        >
+                          + {name}
+                        </button>
+                      ),
+                    )}
+                  </div>
+                </li>
+              )}
+            {filteredAreas.length === 0 && areaFilter.trim() && (
+              <li className="space-y-3 px-3 py-5">
+                <p className="text-center text-sm text-[var(--ink-muted)]">
+                  No areas match “{areaFilter.trim()}”.
+                </p>
+                <div className="space-y-2 rounded-lg border border-dashed border-[var(--line)] bg-[var(--bg)] p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
+                    Add area for this visit
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const name = areaFilter.trim();
+                      addCustomArea(name);
+                      setAreaFilter("");
+                    }}
+                    className="flex min-h-11 w-full items-center justify-between gap-3 rounded-lg bg-[var(--ink)] px-3 text-left text-sm font-semibold text-[var(--bg)]"
+                  >
+                    <span className="truncate">+ Add “{areaFilter.trim()}”</span>
+                    <span className="shrink-0">Add</span>
+                  </button>
+                  <p className="text-xs text-[var(--ink-muted)]">
+                    Adds to this visit only — does not change the branch
+                    checklist template.
+                  </p>
+                  {addAreaHint && (
+                    <p className="text-xs font-medium text-red-800" role="alert">
+                      {addAreaHint}
+                    </p>
+                  )}
+                </div>
               </li>
             )}
           </ul>
-
-          <AreaPickerModal
-            open={pickerOpen}
-            areas={draft.areas.map((a) => ({
-              name: a.area,
-              done: isAreaComplete(a),
-            }))}
-            onClose={() => setPickerOpen(false)}
-            onSelect={(name) => {
-              setPickerOpen(false);
-              openArea(name);
-            }}
-          />
         </main>
       )}
 
@@ -332,13 +538,15 @@ export function CaptureFlow({ visit }: Props) {
 
       {screen === "review" && (
         <main className="space-y-4">
-          <button
-            type="button"
-            onClick={() => setScreen("list")}
-            className="text-sm font-medium text-[var(--accent-deep)]"
-          >
-            ← Back to areas
-          </button>
+          {!draft.submittedAt && (
+            <button
+              type="button"
+              onClick={() => setScreen("list")}
+              className="text-sm font-medium text-[var(--accent-deep)]"
+            >
+              ← Back to areas
+            </button>
+          )}
           <h2 className="text-lg font-semibold text-[var(--ink)]">
             Review report
           </h2>
@@ -348,28 +556,23 @@ export function CaptureFlow({ visit }: Props) {
           <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-sm leading-relaxed text-[var(--ink)]">
             {report}
           </pre>
-          <button
-            type="button"
-            onClick={submitLocal}
-            className="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--accent-ink)]"
-          >
-            {draft.submittedAt ? "Save report again" : "Save report"}
-          </button>
-          <button
-            type="button"
-            className="text-sm text-[var(--ink-muted)] underline"
-            onClick={() => {
-              void clearDraft(visit.id);
-              setDraft({
-                visitId: visit.id,
-                areas: checklist.map((a) => emptyAreaInspection(a)),
-                updatedAt: new Date().toISOString(),
-              });
-              setScreen("list");
-            }}
-          >
-            Reset draft
-          </button>
+          {draft.submittedAt ? (
+            <button
+              type="button"
+              onClick={() => void copyReport()}
+              className="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--accent-ink)]"
+            >
+              {copyFlash ? "Copied" : "Copy report"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={submitLocal}
+              className="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--accent-ink)]"
+            >
+              Save report
+            </button>
+          )}
         </main>
       )}
 
@@ -397,11 +600,6 @@ export function CaptureFlow({ visit }: Props) {
         </nav>
       )}
 
-      {copyFlash && (
-        <div className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-[var(--ink)] px-4 py-2 text-sm font-medium text-[var(--bg)] shadow-lg">
-          {copyFlash}
-        </div>
-      )}
     </div>
   );
 }

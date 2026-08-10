@@ -1,4 +1,4 @@
-import type { VisitType } from "./types";
+import type { DeviceUnitStatus, DeviceUnitActivity, FcuCatchLevel, VisitType } from "./types";
 
 /** Chip vocabulary aligned to real IPM Service Report language */
 export const PEST_TYPE_GROUPS: { label: string; options: string[] }[] = [
@@ -128,6 +128,16 @@ export const SERVICE_ACTIONS = [
   "No treatment required",
 ];
 
+/** Per-subarea: what action was taken */
+export const SUBAREA_ACTIONS = [
+  "No action required",
+  "Preventive treatment applied",
+  "Corrective treatment applied",
+  "Monitoring continued",
+  "Client advised",
+  "Follow-up scheduled",
+];
+
 /** @deprecated use SERVICE_ACTIONS */
 export const TREATMENT_METHODS = SERVICE_ACTIONS;
 
@@ -152,14 +162,72 @@ export const ADVICE_OPTIONS = [
 ];
 
 export const DEVICE_ACTIONS = [
-  "Inspected and serviced",
+  "Inspected",
   "Cleaned",
-  "Fitted new glue boards / inserts",
+  "Serviced",
   "Replenished bait",
-  "Rearmed for monitoring",
+  "Service sticker updated",
+  "New monitoring trap / glue board fitted",
+  "Rearmed",
 ];
 
-export const DEVICE_COUNTS = ["1", "2", "3", "4", "5", "6", "8", "10"];
+/** FCU-focused service chips (Option A roll-up) */
+export const FCU_ACTIONS = [
+  "Inspected",
+  "Cleaned",
+  "Serviced",
+  "New glue boards installed",
+  "Service sticker updated",
+];
+
+export const DEVICE_COUNTS = ["1", "2", "3", "4", "5", "6", "7", "8", "10"];
+
+export const FCU_CATCH_LEVEL_OPTIONS: {
+  id: Exclude<FcuCatchLevel, null>;
+  label: string;
+}[] = [
+  { id: "low", label: "Low" },
+  { id: "light_boards", label: "Light infestation on boards" },
+  { id: "medium", label: "Medium" },
+  { id: "high", label: "High" },
+];
+
+export function fcuCatchLevelLabel(id: Exclude<FcuCatchLevel, null>): string {
+  return FCU_CATCH_LEVEL_OPTIONS.find((o) => o.id === id)?.label ?? id;
+}
+
+export const DEVICE_UNIT_STATUS_OPTIONS: {
+  id: DeviceUnitStatus;
+  label: string;
+}[] = [
+  { id: "ok", label: "OK / good condition" },
+  { id: "dirty", label: "Dirty" },
+  { id: "water_damaged", label: "Water-damaged" },
+  { id: "obstructed", label: "Obstructed" },
+  { id: "missing", label: "Missing / not found" },
+  { id: "needs_paint", label: "Needs paint / corrosion" },
+];
+
+export const DEVICE_UNIT_ACTIVITY_OPTIONS: {
+  id: Exclude<DeviceUnitActivity, null>;
+  label: string;
+}[] = [
+  { id: "none", label: "None" },
+  { id: "feeding", label: "Feeding / bait take signs" },
+  { id: "droppings", label: "Droppings" },
+  { id: "bait_take", label: "Bait take" },
+  { id: "other", label: "Other activity" },
+];
+
+export function deviceUnitStatusLabel(id: DeviceUnitStatus): string {
+  return DEVICE_UNIT_STATUS_OPTIONS.find((o) => o.id === id)?.label ?? id;
+}
+
+export function deviceUnitActivityLabel(
+  id: Exclude<DeviceUnitActivity, null>,
+): string {
+  return DEVICE_UNIT_ACTIVITY_OPTIONS.find((o) => o.id === id)?.label ?? id;
+}
 
 export const RECOMMENDATIONS = ADVICE_OPTIONS;
 

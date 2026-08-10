@@ -30,6 +30,10 @@ export type ConduciveType =
   | "structural_gap"
   | "not_sealed"
   | "dirty"
+  | "oil_accumulation"
+  | "obstruction"
+  | "water_damage"
+  | "paint_wear"
   | null;
 
 export type ActionTier =
@@ -108,6 +112,26 @@ export const CONDUCIVE_OPTIONS: {
   {
     id: "dirty",
     label: "Dirty / sanitation gap",
+    legacyFindings: [],
+  },
+  {
+    id: "oil_accumulation",
+    label: "Oil accumulation",
+    legacyFindings: ["Grease accumulation"],
+  },
+  {
+    id: "obstruction",
+    label: "Obstruction / blocked access",
+    legacyFindings: [],
+  },
+  {
+    id: "water_damage",
+    label: "Water damage",
+    legacyFindings: [],
+  },
+  {
+    id: "paint_wear",
+    label: "Deteriorating paint / corrosion",
     legacyFindings: [],
   },
 ];

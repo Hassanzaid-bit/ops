@@ -158,3 +158,73 @@ const AREA_POINTS: Record<string, PointTemplate[]> = {
 export function getPointTemplates(area: string): PointTemplate[] {
   return AREA_POINTS[area] ?? [primary(area)];
 }
+
+/**
+ * Soft suggestions for subsections PMPs can add on the fly.
+ * Matched when the area name includes the key.
+ */
+const SECTION_SUGGESTIONS: { match: RegExp; suggestions: string[] }[] = [
+  {
+    match: /lobby/i,
+    suggestions: [
+      "Couches / seating",
+      "Display sections",
+      "Waste bins",
+      "Surrounding corners",
+      "Entrance doors",
+    ],
+  },
+  {
+    match: /office/i,
+    suggestions: [
+      "Workstations",
+      "Desks",
+      "Cabinets",
+      "Chairs",
+      "Storage sections",
+    ],
+  },
+  {
+    match: /counter|serving/i,
+    suggestions: [
+      "Serving counter",
+      "Under-counter cabinets",
+      "Display surfaces",
+      "Surrounding equipment",
+    ],
+  },
+  {
+    match: /receiv/i,
+    suggestions: [
+      "Receiving bay",
+      "Pallets",
+      "Delivery entrance",
+      "Walls & floor edges",
+    ],
+  },
+  {
+    match: /dumpster|garbage|waste holding/i,
+    suggestions: [
+      "Waste bins",
+      "Grease accumulation points",
+      "Surrounding environment",
+    ],
+  },
+  {
+    match: /washroom|restroom|toilet/i,
+    suggestions: ["Sinks", "Toilets", "Floor drains", "Wall corners"],
+  },
+  {
+    match: /changing|locker/i,
+    suggestions: ["Lockers", "Floor surfaces", "Changing areas"],
+  },
+  {
+    match: /drain|manhole/i,
+    suggestions: ["Internal drains", "Accessible manholes", "Water flow"],
+  },
+];
+
+export function suggestedSectionsForArea(area: string): string[] {
+  const found = SECTION_SUGGESTIONS.find((s) => s.match.test(area));
+  return found?.suggestions ?? [];
+}

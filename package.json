@@ -15,12 +15,12 @@
     "pwa:icons": "tsx scripts/generate-pwa-icons.ts"
   },
   "dependencies": {
-    "@ducanh2912/next-pwa": "^10.2.9",
+    "@ducanh2912/next-pwa": "^10.2.6",
     "@neondatabase/serverless": "^1.1.0",
     "bcryptjs": "^3.0.3",
     "drizzle-orm": "^0.45.2",
     "jose": "^6.2.4",
-    "next": "16.2.12",
+    "next": "^16.3.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "server-only": "^0.0.1",

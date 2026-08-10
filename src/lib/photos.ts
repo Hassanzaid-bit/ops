@@ -8,6 +8,14 @@ export function maxPhotosPerArea(): number {
   return MAX_PHOTOS_PER_AREA;
 }
 
+export function maxPhotosPerRedDotAction(): number {
+  return 4;
+}
+
+export function maxPhotosPerDeviceUnit(): number {
+  return 4;
+}
+
 function newPhotoId(): string {
   return `photo-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }

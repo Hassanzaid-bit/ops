@@ -41,7 +41,7 @@ export async function POST(request: Request) {
       error instanceof Error &&
       error.message.includes("DATABASE_URL")
     ) {
-      return loginRedirect(request, "config");
+      return loginRedirect(request, "database");
     }
     throw error;
   }
@@ -59,7 +59,7 @@ export async function POST(request: Request) {
       error instanceof Error &&
       error.message.includes("SESSION_SECRET")
     ) {
-      return loginRedirect(request, "config");
+      return loginRedirect(request, "session");
     }
     throw error;
   }

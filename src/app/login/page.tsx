@@ -4,7 +4,11 @@ import { LoginPasswordField } from "@/components/LoginPasswordField";
 const ERROR_MESSAGES: Record<string, string> = {
   invalid: "Invalid email/username or password.",
   config:
-    "Server auth is not configured. Set SESSION_SECRET in Vercel and redeploy.",
+    "Server auth is not configured. Set SESSION_SECRET and DATABASE_URL, then restart the app (or set them in Vercel and redeploy).",
+  database:
+    "Database is not configured. Set DATABASE_URL in .env (or Vercel) and restart.",
+  session:
+    "Session signing is not configured. Set SESSION_SECRET in .env (or Vercel) and restart.",
 };
 
 type Props = {

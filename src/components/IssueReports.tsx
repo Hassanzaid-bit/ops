@@ -1,18 +1,13 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import {
-  issueAreaRows,
-  visitIssuesCount,
-  type IssueAreaRow,
-} from "@/lib/dashboard";
+import { issueAreaRows } from "@/lib/dashboard";
 import { listRecords } from "@/lib/records-store";
-import { generateIssuesReportFromRecord } from "@/lib/report";
-import { normalizeAreaInspection } from "@/lib/types";
-import { VISIT_TYPE_LABELS } from "@/lib/vocabulary";
 import { queryRecords, type VisitRecord } from "@/lib/visit-record";
 import { RangeFilterBar } from "@/components/RangeFilterBar";
+import { issueDetailHref } from "@/components/IssueDetail";
 
 export function IssueReports() {
   const router = useRouter();
@@ -20,7 +15,6 @@ export function IssueReports() {
   const searchParams = useSearchParams();
   const [records, setRecords] = useState<VisitRecord[]>([]);
   const [query, setQuery] = useState("");
-  const [modalId, setModalId] = useState<string | null>(null);
 
   const from = searchParams.get("from") ?? "";
   const to = searchParams.get("to") ?? "";
@@ -30,11 +24,6 @@ export function IssueReports() {
   useEffect(() => {
     void listRecords().then(setRecords);
   }, []);
-
-  useEffect(() => {
-    const id = searchParams.get("issue");
-    if (id) setModalId(id);
-  }, [searchParams]);
 
   const filteredRecords = useMemo(
     () =>
@@ -67,13 +56,6 @@ export function IssueReports() {
     );
   }, [rows, query]);
 
-  const selected = visible.find((r) => r.id === modalId) ??
-    rows.find((r) => r.id === modalId) ??
-    null;
-  const selectedRecord = selected
-    ? (records.find((r) => r.id === selected.recordId) ?? null)
-    : null;
-
   const clients = useMemo(
     () => [...new Set(records.map((r) => r.clientName))].sort(),
     [records],
@@ -85,16 +67,6 @@ export function IssueReports() {
     else params.delete(key);
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-  }
-
-  function openIssue(id: string) {
-    setModalId(id);
-    setParam("issue", id);
-  }
-
-  function closeModal() {
-    setModalId(null);
-    setParam("issue", "");
   }
 
   return (
@@ -192,13 +164,12 @@ export function IssueReports() {
                     {r.advice.join(", ") || "—"}
                   </td>
                   <td className="px-3 py-2.5">
-                    <button
-                      type="button"
-                      onClick={() => openIssue(r.id)}
-                      className="min-h-9 rounded-md border border-[var(--line)] px-2.5 text-xs font-semibold text-[var(--accent)]"
+                    <Link
+                      href={issueDetailHref(r.recordId, r.area)}
+                      className="inline-flex min-h-9 items-center rounded-md border border-[var(--line)] px-2.5 text-xs font-semibold text-[var(--accent)]"
                     >
                       View more
-                    </button>
+                    </Link>
                   </td>
                 </tr>
               ))}
@@ -216,144 +187,6 @@ export function IssueReports() {
           </table>
         </div>
       </section>
-
-      {selected && selectedRecord && (
-        <IssueDetailModal
-          row={selected}
-          record={selectedRecord}
-          onClose={closeModal}
-        />
-      )}
-    </div>
-  );
-}
-
-function IssueDetailModal({
-  row,
-  record,
-  onClose,
-}: {
-  row: IssueAreaRow;
-  record: VisitRecord;
-  onClose: () => void;
-}) {
-  const titleId = useId();
-  const area = useMemo(() => {
-    const raw = record.areas.find((a) => a.area === row.area);
-    return raw ? normalizeAreaInspection(raw, raw.area) : null;
-  }, [record, row.area]);
-  const reportText = useMemo(
-    () => generateIssuesReportFromRecord(record),
-    [record],
-  );
-  const issueCount = visitIssuesCount(record);
-
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.body.style.overflow = prev;
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [onClose]);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      role="presentation"
-    >
-      <button
-        type="button"
-        aria-label="Close"
-        className="absolute inset-0 bg-[var(--ink)]/45"
-        onClick={onClose}
-      />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        className="relative z-10 flex max-h-[min(90vh,720px)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]"
-      >
-        <div className="flex items-start justify-between gap-3 border-b border-[var(--line)] px-4 py-3">
-          <div className="min-w-0">
-            <h2
-              id={titleId}
-              className="text-lg font-semibold text-[var(--ink)]"
-            >
-              {row.area}
-            </h2>
-            <p className="text-sm text-[var(--ink-muted)]">
-              {row.clientName} · {row.siteName} · {row.date} ·{" "}
-              {VISIT_TYPE_LABELS[row.visitType]}
-            </p>
-            <p className="mt-0.5 text-xs text-[var(--ink-muted)]">
-              {issueCount} issue area{issueCount === 1 ? "" : "s"} on this visit
-              · {row.technicianName}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="min-h-9 shrink-0 rounded-lg px-2 text-sm font-semibold text-[var(--ink-muted)]"
-          >
-            Close
-          </button>
-        </div>
-
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
-          {area && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-                  Findings
-                </p>
-                <p className="mt-1 text-sm text-[var(--ink)]">
-                  {area.findings.join(", ") || "—"}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-                  Pests
-                </p>
-                <p className="mt-1 text-sm text-[var(--ink)]">
-                  {area.pestTypes.join(", ") || "—"}
-                </p>
-              </div>
-              <div className="sm:col-span-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-                  Advice
-                </p>
-                <p className="mt-1 text-sm text-[var(--ink)]">
-                  {area.advice.join(", ") || "—"}
-                </p>
-              </div>
-              {area.notes.trim() && (
-                <div className="sm:col-span-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-                    Notes
-                  </p>
-                  <p className="mt-1 whitespace-pre-wrap text-sm text-[var(--ink)]">
-                    {area.notes}
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
-          <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-              Visit issues report
-            </p>
-            <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-xl border border-[var(--line)] bg-[var(--bg)] p-3 text-xs leading-relaxed text-[var(--ink)]">
-              {reportText}
-            </pre>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
